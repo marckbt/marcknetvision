@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+*.gif
+*.zip
+*.pdf
+*.webp
+*.xml
+public/data/
+Archive/
+1992 CC 2/

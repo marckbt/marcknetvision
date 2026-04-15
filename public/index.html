@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarckNetVision Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <!-- Top Controls -->
+  <div id="topControls">
+    <div class="location-wrapper">
+      <span id="browserLocation" class="browser-location" onclick="toggleLocationDropdown()">--</span>
+      <div id="locationDropdown" class="location-dropdown">
+        <div class="location-search-row">
+          <input type="text" id="locationSearch" class="location-input" placeholder="Search city..." autocomplete="off" oninput="filterCities(this.value)" />
+          <button class="location-reset-btn" onclick="resetLocation()" title="Use browser location">&#x21ba; Auto</button>
+        </div>
+        <div id="locationResults" class="location-results"></div>
+      </div>
+    </div>
+    <button id="refreshAll" title="Refresh all feeds">
+      <span class="refresh-icon">&#8635;</span> Full Refresh
+    </button>
+    <button id="fullAutoRefreshToggle" title="Toggle full auto-refresh (1 hour)">
+      Auto-Full Refresh <span class="full-auto-status">OFF</span>
+    </button>
+    <button id="autoRefreshToggle" title="Toggle auto-refresh (10 min)">
+      Auto-Refresh RSS <span class="auto-status">OFF</span>
+    </button>
+    <button id="themeToggle" title="Toggle theme">
+      <span class="theme-icon">&#9790;</span>
+    </button>
+  </div>
+
+  <div id="dashboard">
+    <!-- LEFT SIDEBAR: News -->
+    <aside id="newsSidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-header-row">
+          <h3><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="3" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="4" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="4" y1="10" x2="16" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> NEWS</h3>
+          <button id="swapToggle" class="swap-sidebar-btn" title="Swap news and sports positions">
+            <span class="swap-icon">&#8693;</span> Swap News and Events
+          </button>
+        </div>
+        <div class="category-tabs" id="newsCategoryTabs"></div>
+        <div class="sort-controls" id="eventSortControls" style="display:none;">
+          <button class="sort-btn active" data-sort="time" onclick="setEventSort('time')" title="Sort by time">&#128339; Time</button>
+          <button class="sort-btn" data-sort="sport" onclick="setEventSort('sport')" title="Sort by sport">&#127941; Sport</button>
+        </div>
+      </div>
+      <div class="sidebar-scroll" id="newsScrollArea">
+        <div class="loading-spinner" id="newsLoading">Loading feeds...</div>
+      </div>
+      <div class="sidebar-resize-handle" data-sidebar="newsSidebar"></div>
+    </aside>
+
+    <!-- LEFT SIDEBAR 2: Weather -->
+    <aside id="weatherSidebar" class="sidebar sidebar-split">
+      <div class="sidebar-top">
+        <div class="sidebar-header">
+          <h3><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> WEATHER</h3>
+          <div class="category-tabs" id="weatherLocationTabs">
+            <button class="tab-btn active" data-location="chantilly">Chantilly, VA</button>
+            <button class="tab-btn" data-location="cincinnati">Cincinnati, OH</button>
+            <button class="tab-btn" data-location="browserLocation">Browser Location</button>
+            <!-- Pivotal WX tab hidden for now, code preserved -->
+            <!-- <button class="tab-btn" data-location="pivotal">Pivotal WX</button> -->
+          </div>
+        </div>
+        <div class="sidebar-scroll" id="weatherScrollArea">
+          <div class="loading-spinner" id="weatherLoading">Loading weather...</div>
+        </div>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="sidebar-header">
+          <h3><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="4" width="13" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><polygon points="16,7 19,5 19,15 16,13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> LIVE VIDEO</h3>
+        </div>
+        <div class="sidebar-scroll" id="liveVideoArea">
+          <div class="live-video-row">
+            <div class="pivotal-card live-video-half" onclick="showWeatherscanVideo()">
+              <div class="twc-logo-row">
+                <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="twc-logo">
+                  <rect x="0" y="0" width="120" height="28" rx="4" fill="#0072bc"/>
+                  <text x="60" y="20" text-anchor="middle" font-family="'Arial', 'Helvetica', sans-serif" font-size="16" font-weight="700" fill="#fff" letter-spacing="1">TWC Retro</text>
+                </svg>
+              </div>
+              <div class="wx-desc" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">
+                Live weather stream
+              </div>
+            </div>
+            <div class="pivotal-card live-video-half" onclick="showDWLive()">
+              <div class="dw-logo-row">
+                <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="twc-logo">
+                  <rect x="0" y="0" width="120" height="28" rx="4" fill="#0a1e3d"/>
+                  <text x="38" y="20" text-anchor="middle" font-family="'Arial', 'Helvetica', sans-serif" font-size="18" font-weight="900" fill="#fff" letter-spacing="0">DW</text>
+                  <line x1="56" y1="5" x2="56" y2="23" stroke="#fff" stroke-width="1" opacity="0.4"/>
+                  <text x="88" y="18" text-anchor="middle" font-family="'Arial', 'Helvetica', sans-serif" font-size="10" font-weight="400" fill="#ccc" letter-spacing="0.5">NEWS</text>
+                </svg>
+              </div>
+              <div class="wx-desc" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">
+                DW Live on YouTube
+              </div>
+            </div>
+          </div>
+          <div class="pivotal-card espn-link-card" onclick="showESPNLive()" style="margin-top:6px;">
+            <div class="espn-logo-row">
+              <svg viewBox="0 0 100 24" xmlns="http://www.w3.org/2000/svg" class="espn-logo">
+                <text x="0" y="20" font-family="'Arial Black', 'Impact', sans-serif" font-size="22" font-weight="900" font-style="italic" fill="#d00">ESPN</text>
+              </svg>
+            </div>
+            <div class="wx-desc" style="font-size:11px;color:var(--text-secondary);margin-top:4px;">
+              Live &amp; upcoming events<br>Click to open in new tab
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-resize-handle" data-sidebar="weatherSidebar"></div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main id="mainContent">
+      <div class="main-content-inner">
+        <div id="welcomeScreen" class="content-panel active">
+          <div class="welcome-hero">
+            <svg class="welcome-logo" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="wlGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#00b4d8;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#0077b6;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="wlVision" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" style="stop-color:#00b4d8" />
+                  <stop offset="50%" style="stop-color:#48cae4" />
+                  <stop offset="100%" style="stop-color:#90e0ef" />
+                </linearGradient>
+              </defs>
+              <path d="M8 40 Q12 10, 20 30 Q28 50, 36 20 Q40 10, 44 30" stroke="url(#wlGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+              <circle cx="26" cy="28" r="4" fill="url(#wlGrad)" opacity="0.8"/>
+              <circle cx="26" cy="28" r="16" stroke="url(#wlGrad)" stroke-width="1.5" fill="none" opacity="0.4"/>
+              <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#wlGrad)">MARCK</text>
+              <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#wlGrad)" dx="58">NET</text>
+              <text x="52" y="42" font-family="'Segoe UI', Arial, sans-serif" font-size="14" font-weight="300" letter-spacing="4" fill="url(#wlVision)">VISION</text>
+              <circle cx="170" cy="18" r="2" fill="#00b4d8" opacity="0.6"/>
+              <circle cx="178" cy="22" r="1.5" fill="#48cae4" opacity="0.4"/>
+              <circle cx="174" cy="30" r="1" fill="#90e0ef" opacity="0.3"/>
+            </svg>
+            <p class="tagline">Daily Content Dashboard</p>
+            <p class="date-display" id="currentDate"></p>
+            <div class="quick-stats" id="quickStats">
+              <div class="stat-card">
+                <span class="stat-label">News Sources</span>
+                <span class="stat-value" id="statSources">--</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Weather Locations</span>
+                <span class="stat-value">2</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-label">Sports Today</span>
+                <span class="stat-value" id="statSports">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="newsDetailPanel" class="content-panel">
+          <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
+          <article id="newsArticleContent"></article>
+        </div>
+
+        <div id="weatherDetailPanel" class="content-panel">
+          <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
+          <div id="weatherDetailContent"></div>
+        </div>
+
+        <div id="pivotalPanel" class="content-panel">
+          <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
+          <div id="pivotalContent">
+            <h2>ECMWF AIFS Surface Temperature Forecast</h2>
+            <div class="pivotal-gif-container">
+              <img id="pivotalGif" src="/api/pivotal-gif" alt="Pivotal Weather Forecast GIF" />
+            </div>
+          </div>
+        </div>
+
+        <div id="weatherscanPanel" class="content-panel">
+          <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
+          <div id="weatherscanContent">
+            <h2>Weatherscan Live</h2>
+            <iframe id="weatherscanFrame" src="" style="width:100%;height:calc(100vh - 160px);border:none;border-radius:8px;" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- BOTTOM TICKER -->
+  <div id="tickerBar">
+    <div class="ticker-logo" id="logoArea">
+      <svg id="mnvLogo" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#00b4d8;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#0077b6;stop-opacity:1" />
+          </linearGradient>
+          <linearGradient id="visionGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#00b4d8" />
+            <stop offset="50%" style="stop-color:#48cae4" />
+            <stop offset="100%" style="stop-color:#90e0ef" />
+          </linearGradient>
+        </defs>
+        <!-- Signal wave icon -->
+        <path d="M8 40 Q12 10, 20 30 Q28 50, 36 20 Q40 10, 44 30" stroke="url(#logoGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="26" cy="28" r="4" fill="url(#logoGrad)" opacity="0.8"/>
+        <!-- Outer ring -->
+        <circle cx="26" cy="28" r="16" stroke="url(#logoGrad)" stroke-width="1.5" fill="none" opacity="0.4"/>
+        <!-- Text -->
+        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#logoGrad)">MARCK</text>
+        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#logoGrad)" dx="58">NET</text>
+        <text x="52" y="42" font-family="'Segoe UI', Arial, sans-serif" font-size="14" font-weight="300" letter-spacing="4" fill="url(#visionGrad)">VISION</text>
+        <!-- Decorative dots -->
+        <circle cx="170" cy="18" r="2" fill="#00b4d8" opacity="0.6"/>
+        <circle cx="178" cy="22" r="1.5" fill="#48cae4" opacity="0.4"/>
+        <circle cx="174" cy="30" r="1" fill="#90e0ef" opacity="0.3"/>
+      </svg>
+    </div>
+    <div class="ticker-content">
+      <div class="ticker-track" id="tickerTrack">
+        <span class="ticker-loading">Loading sports schedule...</span>
+      </div>
+    </div>
+    <div class="ticker-conditions" id="currentConditions">
+      <div class="conditions-time" id="conditionsTime">--:--</div>
+      <div class="conditions-wx">
+        <span class="conditions-icon" id="conditionsIcon"></span>
+        <span class="conditions-temp" id="conditionsTemp">--&deg;</span>
+      </div>
+      <div class="conditions-dow" id="dowIndicator">
+        <span class="dow-label">DOW</span>
+        <span class="dow-value" id="dowValue">--</span>
+        <span class="dow-change" id="dowChange">--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- News Chat Popup -->
+  <div id="newsPopup" class="news-chat-popup">
+    <div class="news-chat-header">
+      <span class="news-chat-title">Article</span>
+      <button class="news-chat-close" onclick="closeNewsPopup()">&times;</button>
+    </div>
+    <div class="news-chat-body" id="newsPopupContent"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

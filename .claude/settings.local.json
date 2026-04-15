@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p public Archive)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "WebFetch(domain:forecast.weather.gov)",
+      "WebFetch(domain:www.espn.com)",
+      "WebFetch(domain:tl.net)",
+      "WebSearch",
+      "WebFetch(domain:beta.pivotalweather.com)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://www.pivotalweather.com/model.php?m=ecmwf_aifs&p=sfct-imp&r=conus&fh=186\")",
+      "Bash(curl -s -L -H \"User-Agent: Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" \"https://www.pivotalweather.com/model.php?m=ecmwf_aifs&p=sfct-imp&r=conus&fh=186\")",
+      "Bash(python3 -c \"from PIL import Image; print\\(''''Pillow available''''\\)\")",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "Bash(curl -s http://localhost:3000/api/weather)",
+      "Bash(curl -s http://localhost:3000/api/schedule)",
+      "Bash(curl -s http://localhost:3000/api/news-categories)",
+      "Bash(xargs kill:*)",
+      "mcp__Claude_Preview__preview_start",
+      "WebFetch(domain:www.wunderground.com)",
+      "WebFetch(domain:api.weather.gov)",
+      "Bash(node weather-scraper.js)",
+      "Bash(lsof -ti:3000)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "WebFetch(domain:site.api.espn.com)",
+      "Bash(curl -s \"https://tl.net/calendar/xml/calendar.xml\")",
+      "Bash(node schedule-scraper.js)",
+      "Bash(node -e \"const { refreshSchedule } = require\\(''./schedule-scraper''\\); refreshSchedule\\(\\).then\\(data => { console.log\\(''Total:'', data.length\\); data.forEach\\(item => console.log\\(''['' + item.sport + ''] '' + item.matchup + '' | '' + item.time\\)\\); }\\)\")",
+      "Bash(node -e \"const d = require\\(''./public/data/weather.json''\\); console.log\\(JSON.stringify\\(d.chantilly.daily[0], null, 2\\)\\)\")",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/**)",
+      "Bash(/usr/local/bin/node -e \":*)",
+      "Bash(/usr/local/bin/node -e \"const { refreshSchedule } = require\\(''./schedule-scraper''\\); refreshSchedule\\(\\).then\\(data => { console.log\\(''Total filtered:'', data.length\\); const sports = {}; data.forEach\\(i => { sports[i.sport] = \\(sports[i.sport]||0\\)+1; }\\); console.log\\(''Breakdown:'', JSON.stringify\\(sports\\)\\); data.slice\\(0,5\\).forEach\\(i => console.log\\(''[''+i.sport+''] ''+i.matchup+'' | ''+i.time\\)\\); }\\).catch\\(e => console.error\\(''ERROR:'', e.message\\)\\);\")",
+      "Bash(/usr/local/bin/node schedule-scraper.js)",
+      "Bash(/usr/local/bin/node -e \"const { refreshSchedule } = require\\(''./schedule-scraper''\\); refreshSchedule\\(\\).then\\(data => { const withLinks = data.filter\\(d => d.link\\); console.log\\(''Events with links:'', withLinks.length, ''/'', data.length\\); withLinks.slice\\(0,3\\).forEach\\(d => console.log\\('' '', d.matchup, ''|'', d.link\\)\\); }\\);\")"
+    ]
+  }
+}
