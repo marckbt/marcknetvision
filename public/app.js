@@ -1,5 +1,41 @@
 // ===== MarckNetVision Dashboard App =====
 
+// --- Weather Channel Temperature Color Scale ---
+function getTempColor(temp) {
+  // Color stops based on the Weather Channel temperature scale
+  const stops = [
+    { t: -20, r: 207, g: 179, b: 212 }, // pale lavender
+    { t: -10, r: 153, g: 102, b: 170 }, // purple
+    { t:   0, r: 204, g:  51, b: 153 }, // magenta
+    { t:  10, r: 204, g: 153, b: 221 }, // light purple
+    { t:  20, r: 153, g: 204, b: 255 }, // light blue
+    { t:  30, r:   0, g: 204, b: 221 }, // cyan
+    { t:  40, r:   0, g: 102,  b:  51 }, // dark green
+    { t:  50, r: 136, g: 136, b:  51 }, // olive
+    { t:  60, r: 255, g: 238, b:   0 }, // yellow
+    { t:  70, r: 255, g: 170, b:  51 }, // gold
+    { t:  80, r: 255, g: 119, b:  34 }, // orange
+    { t:  90, r: 221, g:  34, b:  17 }, // red
+    { t: 100, r: 238, g: 102, b: 170 }, // pink
+    { t: 110, r: 221, g: 187, b: 221 }, // lavender
+  ];
+  // Clamp to range
+  if (temp <= stops[0].t) return `rgb(${stops[0].r},${stops[0].g},${stops[0].b})`;
+  if (temp >= stops[stops.length - 1].t) { const s = stops[stops.length - 1]; return `rgb(${s.r},${s.g},${s.b})`; }
+  // Find surrounding stops and interpolate
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i], b = stops[i + 1];
+    if (temp >= a.t && temp <= b.t) {
+      const f = (temp - a.t) / (b.t - a.t);
+      const r = Math.round(a.r + f * (b.r - a.r));
+      const g = Math.round(a.g + f * (b.g - a.g));
+      const bl = Math.round(a.b + f * (b.b - a.b));
+      return `rgb(${r},${g},${bl})`;
+    }
+  }
+  return '#ffffff';
+}
+
 // --- Theme ---
 const themeToggle = document.getElementById('themeToggle');
 const html = document.documentElement;
@@ -157,6 +193,28 @@ function buildRadarUrl(lat, lon) {
   return 'https://radar.weather.gov/?settings=v1_' + encodeURIComponent(btoa(JSON.stringify(settings)));
 }
 
+function buildWindyUrl(lat, lon, overlay = 'satellite') {
+  // Windy embed centered on the given location with configurable overlay
+  // CAPE index zooms in closer for better detail
+  const zoom = overlay === 'cape' ? 9 : 7;
+  return `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&width=650&height=450&zoom=${zoom}&level=surface&overlay=${overlay}&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1`;
+}
+
+function switchWindyOverlay(overlay, btn) {
+  const iframe = document.querySelector('.wx-detail-windy-bottom iframe');
+  if (!iframe) return;
+  const currentLat = iframe.dataset.lat;
+  const currentLon = iframe.dataset.lon;
+  if (!currentLat || !currentLon) return;
+  iframe.src = buildWindyUrl(parseFloat(currentLat), parseFloat(currentLon), overlay);
+  // Update active button state
+  document.querySelectorAll('.windy-toggle-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  // Update title to reflect selection
+  const titleEl = document.querySelector('.wx-detail-section-title .windy-current');
+  if (titleEl) titleEl.textContent = overlay === 'cape' ? 'CAPE Index' : 'Satellite Map';
+}
+
 async function loadWeather() {
   const scrollArea = document.getElementById('weatherScrollArea');
   scrollArea.innerHTML = '<div class="loading-spinner">Loading weather...</div>';
@@ -265,8 +323,8 @@ function renderWeatherSidebar(locationKey) {
         <div class="wx-desc">${escapeHtml(day.condition)}</div>
       </div>
       <div class="wx-temps">
-        <div class="wx-high">${day.high}&deg;</div>
-        <div class="wx-low">${day.low}&deg;</div>
+        <div class="wx-high" style="color:${getTempColor(day.high)}">${day.high}&deg;</div>
+        <div class="wx-low" style="color:${getTempColor(day.low)}">${day.low}&deg;</div>
       </div>
     </div>`
   ).join('');
@@ -376,6 +434,9 @@ function showWeatherDetail(locationKey, dayIndex) {
   const content = document.getElementById('weatherDetailContent');
   const coords = LOCATION_COORDS[locationKey];
   const radarUrl = coords ? buildRadarUrl(coords.lat, coords.lon) : '';
+  const windyUrl = coords ? buildWindyUrl(coords.lat, coords.lon) : '';
+  const windyLat = coords ? coords.lat : '';
+  const windyLon = coords ? coords.lon : '';
 
   content.innerHTML = `
     <h2><span class="wx-detail-icon">${getWxIcon(day.condition)}</span> ${day.dayName} - ${loc.name}</h2>
@@ -385,11 +446,11 @@ function showWeatherDetail(locationKey, dayIndex) {
         <div class="wx-detail-grid">
           <div class="wx-detail-stat">
             <div class="label">High</div>
-            <div class="value temp-high">${day.high}&deg;F</div>
+            <div class="value temp-high" style="color:${getTempColor(day.high)}">${day.high}&deg;F</div>
           </div>
           <div class="wx-detail-stat">
             <div class="label">Low</div>
-            <div class="value temp-low">${day.low}&deg;F</div>
+            <div class="value temp-low" style="color:${getTempColor(day.low)}">${day.low}&deg;F</div>
           </div>
           <div class="wx-detail-stat">
             <div class="label">Dew Point</div>
@@ -420,6 +481,16 @@ function showWeatherDetail(locationKey, dayIndex) {
     </div>
     ${radarUrl ? `<div class="wx-detail-radar-bottom">
       <iframe src="${radarUrl}" style="width:100%;height:100%;border:none;border-radius:8px;" allowfullscreen></iframe>
+    </div>` : ''}
+    ${windyUrl ? `<div class="wx-detail-section-title">
+      Windy <span class="windy-current">Satellite Map</span>
+      <div class="windy-toggle-group">
+        <button class="windy-toggle-btn active" onclick="switchWindyOverlay('satellite', this)">Satellite</button>
+        <button class="windy-toggle-btn" onclick="switchWindyOverlay('cape', this)">CAPE Index</button>
+      </div>
+    </div>
+    <div class="wx-detail-windy-bottom">
+      <iframe src="${windyUrl}" data-lat="${windyLat}" data-lon="${windyLon}" style="width:100%;height:100%;border:none;border-radius:8px;" allowfullscreen></iframe>
     </div>` : ''}
   `;
 
@@ -726,6 +797,128 @@ if (localStorage.getItem('mnv-auto-refresh') === '1') {
   setAutoRefresh(true);
 }
 
+// --- Auto-Scroll Left Panel (matches ticker speed, cycles categories at bottom) ---
+// Ticker anim: 120s for 50% of track, ~20 px/sec perceptual. Match with vertical scroll.
+const AUTO_SCROLL_PX_PER_SEC = 20;
+const AUTO_SCROLL_PAUSE_AT_TOP_MS = 800;
+const AUTO_SCROLL_PAUSE_AT_BOTTOM_MS = 1500;
+let autoScrollRafId = null;
+let autoScrollLastTs = 0;
+let autoScrollAcc = 0;
+let autoScrollPaused = false;
+
+function getScrollingArea() {
+  // In swapped mode, the left panel shows events via #newsScrollArea (same element)
+  return document.getElementById('newsScrollArea');
+}
+
+function cycleLeftPanelCategoryOrSort() {
+  if (isSwapped) {
+    // Events mode: toggle sort between time and sport
+    const next = eventSortMode === 'time' ? 'sport' : 'time';
+    setEventSort(next);
+  } else {
+    // News mode: move to next category tab (wrap around)
+    const tabs = Array.from(document.querySelectorAll('#newsCategoryTabs .tab-btn'));
+    if (!tabs.length) return;
+    const currentIdx = tabs.findIndex(t => t.classList.contains('active'));
+    const nextIdx = (currentIdx + 1) % tabs.length;
+    tabs[currentIdx]?.classList.remove('active');
+    tabs[nextIdx].classList.add('active');
+    loadNewsCategory(tabs[nextIdx].dataset.category);
+  }
+}
+
+function autoScrollStep(ts) {
+  if (!autoScrollRafId) return;
+  if (!autoScrollLastTs) autoScrollLastTs = ts;
+  const dt = ts - autoScrollLastTs;
+  autoScrollLastTs = ts;
+
+  if (!autoScrollPaused) {
+    autoScrollAcc += (AUTO_SCROLL_PX_PER_SEC * dt) / 1000;
+    const area = getScrollingArea();
+    if (area) {
+      const maxScroll = area.scrollHeight - area.clientHeight;
+      if (maxScroll <= 0) {
+        // Not enough content to scroll — just cycle after pause
+        autoScrollPaused = true;
+        setTimeout(() => {
+          cycleLeftPanelCategoryOrSort();
+          autoScrollAcc = 0;
+          // Wait a bit after category change for the new content to render
+          setTimeout(() => { autoScrollPaused = false; autoScrollLastTs = 0; }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
+        }, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
+      } else if (autoScrollAcc >= 1) {
+        const delta = Math.floor(autoScrollAcc);
+        autoScrollAcc -= delta;
+        area.scrollTop = Math.min(area.scrollTop + delta, maxScroll);
+        if (area.scrollTop >= maxScroll - 1) {
+          // Reached bottom: pause, cycle category, reset to top
+          autoScrollPaused = true;
+          setTimeout(() => {
+            cycleLeftPanelCategoryOrSort();
+            autoScrollAcc = 0;
+            const a = getScrollingArea();
+            if (a) a.scrollTop = 0;
+            setTimeout(() => { autoScrollPaused = false; autoScrollLastTs = 0; }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
+          }, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
+        }
+      }
+    }
+  }
+
+  autoScrollRafId = requestAnimationFrame(autoScrollStep);
+}
+
+function setAutoScroll(enabled) {
+  const btn = document.getElementById('autoScrollToggle');
+  const statusSpan = btn.querySelector('.scroll-status');
+  if (enabled) {
+    if (!autoScrollRafId) {
+      autoScrollLastTs = 0;
+      autoScrollAcc = 0;
+      autoScrollPaused = false;
+      autoScrollRafId = requestAnimationFrame(autoScrollStep);
+    }
+    statusSpan.textContent = 'ON';
+    btn.classList.add('auto-on');
+    localStorage.setItem('mnv-auto-scroll', '1');
+  } else {
+    if (autoScrollRafId) {
+      cancelAnimationFrame(autoScrollRafId);
+      autoScrollRafId = null;
+    }
+    statusSpan.textContent = 'OFF';
+    btn.classList.remove('auto-on');
+    localStorage.setItem('mnv-auto-scroll', '0');
+  }
+}
+
+document.getElementById('autoScrollToggle').addEventListener('click', () => {
+  setAutoScroll(!autoScrollRafId);
+});
+
+// Pause auto-scroll when the user manually interacts with the sidebar
+['wheel', 'touchstart', 'mousedown'].forEach(evt => {
+  document.addEventListener(evt, (e) => {
+    const area = getScrollingArea();
+    if (!area || !autoScrollRafId) return;
+    if (area.contains(e.target)) {
+      // Briefly pause so user can read without it jumping
+      autoScrollPaused = true;
+      clearTimeout(window._autoScrollResumeT);
+      window._autoScrollResumeT = setTimeout(() => { autoScrollPaused = false; autoScrollLastTs = 0; }, 3000);
+    }
+  }, { passive: true });
+});
+
+// Restore auto-scroll state
+if (localStorage.getItem('mnv-auto-scroll') === '1') {
+  // Delay slightly so news content is loaded first
+  setTimeout(() => setAutoScroll(true), 2000);
+}
+
 // --- Full Auto Refresh (1 hour) ---
 let fullAutoRefreshCountdown = null;
 let fullAutoRefreshSecondsLeft = 0;
@@ -987,8 +1180,8 @@ function renderBrowserLocationWeather() {
         <div class="wx-desc">${escapeHtml(day.condition)}</div>
       </div>
       <div class="wx-temps">
-        <div class="wx-high">${day.high}&deg;</div>
-        <div class="wx-low">${day.low}&deg;</div>
+        <div class="wx-high" style="color:${getTempColor(day.high)}">${day.high}&deg;</div>
+        <div class="wx-low" style="color:${getTempColor(day.low)}">${day.low}&deg;</div>
       </div>
     </div>`
   ).join('');
@@ -1002,6 +1195,9 @@ function showBrowserLocationDetail(dayIndex) {
   const lat = currentLocation ? currentLocation.lat : null;
   const lon = currentLocation ? currentLocation.lon : null;
   const radarUrl = (lat && lon) ? buildRadarUrl(lat, lon) : '';
+  const windyUrl = (lat && lon) ? buildWindyUrl(lat, lon) : '';
+  const windyLat = lat || '';
+  const windyLon = lon || '';
 
   content.innerHTML = `
     <h2><span class="wx-detail-icon">${getWxIcon(day.condition)}</span> ${day.dayName} - ${locName}</h2>
@@ -1011,11 +1207,11 @@ function showBrowserLocationDetail(dayIndex) {
         <div class="wx-detail-grid">
           <div class="wx-detail-stat">
             <div class="label">High</div>
-            <div class="value temp-high">${day.high}&deg;F</div>
+            <div class="value temp-high" style="color:${getTempColor(day.high)}">${day.high}&deg;F</div>
           </div>
           <div class="wx-detail-stat">
             <div class="label">Low</div>
-            <div class="value temp-low">${day.low}&deg;F</div>
+            <div class="value temp-low" style="color:${getTempColor(day.low)}">${day.low}&deg;F</div>
           </div>
           <div class="wx-detail-stat">
             <div class="label">Dew Point</div>
@@ -1046,6 +1242,16 @@ function showBrowserLocationDetail(dayIndex) {
     </div>
     ${radarUrl ? `<div class="wx-detail-radar-bottom">
       <iframe src="${radarUrl}" style="width:100%;height:100%;border:none;border-radius:8px;" allowfullscreen></iframe>
+    </div>` : ''}
+    ${windyUrl ? `<div class="wx-detail-section-title">
+      Windy <span class="windy-current">Satellite Map</span>
+      <div class="windy-toggle-group">
+        <button class="windy-toggle-btn active" onclick="switchWindyOverlay('satellite', this)">Satellite</button>
+        <button class="windy-toggle-btn" onclick="switchWindyOverlay('cape', this)">CAPE Index</button>
+      </div>
+    </div>
+    <div class="wx-detail-windy-bottom">
+      <iframe src="${windyUrl}" data-lat="${windyLat}" data-lon="${windyLon}" style="width:100%;height:100%;border:none;border-radius:8px;" allowfullscreen></iframe>
     </div>` : ''}
   `;
 
