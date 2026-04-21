@@ -41,9 +41,14 @@
       <div class="sidebar-header">
         <div class="sidebar-header-row">
           <h3><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="3" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="4" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="4" y1="10" x2="16" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> NEWS</h3>
-          <button id="swapToggle" class="swap-sidebar-btn" title="Swap news and sports positions">
-            <span class="swap-icon">&#8693;</span> Swap News and Events
-          </button>
+          <div class="sidebar-header-actions">
+            <button id="swapToggle" class="swap-sidebar-btn" title="Swap news and sports positions">
+              <span class="swap-icon">&#8693;</span> Swap News and Events
+            </button>
+            <button id="autoScrollToggle" class="sidebar-auto-scroll-btn" title="Auto-scroll left panel and cycle categories">
+              Auto-Scroll <span class="scroll-status">OFF</span>
+            </button>
+          </div>
         </div>
         <div class="category-tabs" id="newsCategoryTabs"></div>
         <div class="sort-controls" id="eventSortControls" style="display:none;">
