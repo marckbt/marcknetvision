@@ -35,7 +35,8 @@
       "Bash(/usr/local/bin/node -e \"const { refreshSchedule } = require\\(''./schedule-scraper''\\); refreshSchedule\\(\\).then\\(data => { console.log\\(''Total filtered:'', data.length\\); const sports = {}; data.forEach\\(i => { sports[i.sport] = \\(sports[i.sport]||0\\)+1; }\\); console.log\\(''Breakdown:'', JSON.stringify\\(sports\\)\\); data.slice\\(0,5\\).forEach\\(i => console.log\\(''[''+i.sport+''] ''+i.matchup+'' | ''+i.time\\)\\); }\\).catch\\(e => console.error\\(''ERROR:'', e.message\\)\\);\")",
       "Bash(/usr/local/bin/node schedule-scraper.js)",
       "Bash(/usr/local/bin/node -e \"const { refreshSchedule } = require\\(''./schedule-scraper''\\); refreshSchedule\\(\\).then\\(data => { const withLinks = data.filter\\(d => d.link\\); console.log\\(''Events with links:'', withLinks.length, ''/'', data.length\\); withLinks.slice\\(0,3\\).forEach\\(d => console.log\\('' '', d.matchup, ''|'', d.link\\)\\); }\\);\")",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(chmod +x \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/install-rhel.sh\")"
     ]
   }
 }
