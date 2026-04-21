@@ -259,52 +259,84 @@ function wxIconImg(filename) {
   return `<img src="/icons/wx/${filename}" alt="${filename.replace('.gif','')}" class="wx-icon-img">`;
 }
 
-function getWxIcon(condition) {
+// Rough night detection from the local browser clock.
+// Treats 7 PM – 6 AM as night; good enough for picking the sun-vs-moon icon.
+function isNightNow() {
+  const h = new Date().getHours();
+  return h < 6 || h >= 19;
+}
+
+// Map between day-variant and night-variant icons for the pairs we have.
+// (The retro set doesn't include every pair; anything not listed passes through.)
+const WX_DAY_FROM_NIGHT = {
+  'Clear.gif':        'Sunny.gif',
+  'Mostly-Clear.gif': 'Sunny.gif',        // no "Mostly-Sunny" in set — use Sunny
+  'Partly-Clear.gif': 'Partly-Cloudy.gif',
+};
+const WX_NIGHT_FROM_DAY = {
+  'Sunny.gif':         'Clear.gif',
+  'Partly-Cloudy.gif': 'Partly-Clear.gif',
+};
+
+// Pick the best-matching retro icon filename for a condition string.
+// Returns just the filename — caller decides day/night and wraps in <img>.
+function pickWxIconFile(condition) {
   const lower = (condition || '').toLowerCase();
 
   // Thunderstorms (check before rain/snow)
-  if (lower.includes('thundersnow')) return wxIconImg('ThunderSnow.gif');
-  if (lower.includes('thunderstorm') || (lower.includes('thunder') && lower.includes('storm'))) return wxIconImg('Thunderstorm.gif');
-  if (lower.includes('thunder') || lower.includes('tstm') || lower.includes('lightning')) return wxIconImg('Thunder.gif');
+  if (lower.includes('thundersnow')) return 'ThunderSnow.gif';
+  if (lower.includes('thunderstorm') || (lower.includes('thunder') && lower.includes('storm'))) return 'Thunderstorm.gif';
+  if (lower.includes('thunder') || lower.includes('tstm') || lower.includes('lightning')) return 'Thunder.gif';
 
   // Wintry mix / combination precip
-  if (lower.includes('wintry mix') || (lower.includes('rain') && lower.includes('snow') && lower.includes('sleet'))) return wxIconImg('Wintry-Mix.gif');
-  if (lower.includes('freezing rain') && lower.includes('sleet')) return wxIconImg('Freezing-Rain-Sleet.gif');
-  if (lower.includes('freezing rain') || lower.includes('freezing drizzle')) return wxIconImg('Freezing-Rain.gif');
-  if ((lower.includes('rain') && lower.includes('snow')) || (lower.includes('snow') && lower.includes('rain'))) return wxIconImg('Rain-Snow.gif');
-  if ((lower.includes('snow') && lower.includes('sleet')) || (lower.includes('sleet') && lower.includes('snow'))) return wxIconImg('Snow-Sleet.gif');
-  if ((lower.includes('ice') && lower.includes('snow'))) return wxIconImg('Ice-Snow.gif');
-  if (lower.includes('sleet') || lower.includes('ice pellet')) return wxIconImg('Sleet.gif');
+  if (lower.includes('wintry mix') || (lower.includes('rain') && lower.includes('snow') && lower.includes('sleet'))) return 'Wintry-Mix.gif';
+  if (lower.includes('freezing rain') && lower.includes('sleet')) return 'Freezing-Rain-Sleet.gif';
+  if (lower.includes('freezing rain') || lower.includes('freezing drizzle')) return 'Freezing-Rain.gif';
+  if ((lower.includes('rain') && lower.includes('snow')) || (lower.includes('snow') && lower.includes('rain'))) return 'Rain-Snow.gif';
+  if ((lower.includes('snow') && lower.includes('sleet')) || (lower.includes('sleet') && lower.includes('snow'))) return 'Snow-Sleet.gif';
+  if ((lower.includes('ice') && lower.includes('snow'))) return 'Ice-Snow.gif';
+  if (lower.includes('sleet') || lower.includes('ice pellet')) return 'Sleet.gif';
 
   // Snow
-  if (lower.includes('blowing snow') || lower.includes('blizzard')) return wxIconImg('Blowing-Snow.gif');
-  if (lower.includes('heavy snow')) return wxIconImg('Heavy-Snow.gif');
-  if (lower.includes('light snow') || lower.includes('flurr') || lower.includes('snow shower')) return wxIconImg('Light-Snow.gif');
-  if (lower.includes('snow')) return wxIconImg('Light-Snow.gif');
+  if (lower.includes('blowing snow') || lower.includes('blizzard')) return 'Blowing-Snow.gif';
+  if (lower.includes('heavy snow')) return 'Heavy-Snow.gif';
+  if (lower.includes('light snow') || lower.includes('flurr') || lower.includes('snow shower')) return 'Light-Snow.gif';
+  if (lower.includes('snow')) return 'Light-Snow.gif';
 
   // Rain / showers
-  if (lower.includes('shower') || lower.includes('scattered') || lower.includes('drizzle') || lower.includes('sprinkle')) return wxIconImg('Shower.gif');
-  if (lower.includes('rain')) return wxIconImg('Rain.gif');
+  if (lower.includes('shower') || lower.includes('scattered') || lower.includes('drizzle') || lower.includes('sprinkle')) return 'Shower.gif';
+  if (lower.includes('rain')) return 'Rain.gif';
 
   // Cloud cover
-  if (lower.includes('mostly cloudy') || lower.includes('considerable cloud')) return wxIconImg('Mostly-Cloudy.gif');
-  if (lower.includes('partly cloudy')) return wxIconImg('Partly-Cloudy.gif');
-  if (lower.includes('partly sunny') || lower.includes('partly clear')) return wxIconImg('Partly-Clear.gif');
-  if (lower.includes('mostly sunny') || lower.includes('mostly clear')) return wxIconImg('Mostly-Clear.gif');
-  if (lower.includes('cloudy') || lower.includes('overcast')) return wxIconImg('Cloudy.gif');
+  if (lower.includes('mostly cloudy') || lower.includes('considerable cloud')) return 'Mostly-Cloudy.gif';
+  if (lower.includes('partly cloudy')) return 'Partly-Cloudy.gif';
+  if (lower.includes('partly sunny') || lower.includes('partly clear')) return 'Partly-Clear.gif';
+  if (lower.includes('mostly sunny') || lower.includes('mostly clear')) return 'Mostly-Clear.gif';
+  if (lower.includes('cloudy') || lower.includes('overcast')) return 'Cloudy.gif';
 
   // Clear / sunny
-  if (lower.includes('sunny') || lower.includes('fair')) return wxIconImg('Sunny.gif');
-  if (lower.includes('clear')) return wxIconImg('Clear.gif');
+  if (lower.includes('sunny') || lower.includes('fair')) return 'Sunny.gif';
+  if (lower.includes('clear')) return 'Clear.gif';
 
   // Fog/haze/mist — use Cloudy as closest match
-  if (lower.includes('fog') || lower.includes('mist') || lower.includes('haze')) return wxIconImg('Cloudy.gif');
+  if (lower.includes('fog') || lower.includes('mist') || lower.includes('haze')) return 'Cloudy.gif';
 
   // Wind — use Partly-Cloudy as fallback
-  if (lower.includes('wind')) return wxIconImg('Partly-Cloudy.gif');
+  if (lower.includes('wind')) return 'Partly-Cloudy.gif';
 
-  // Default
-  return wxIconImg('Partly-Clear.gif');
+  // Default — go with the day variant so the forecast never accidentally
+  // shows a moon when we don't know what the condition is.
+  return 'Partly-Cloudy.gif';
+}
+
+// timeOfDay: 'day' (default, used for the 7-day forecast), 'night', or 'auto'
+// (uses the browser clock — used for the bottom-right current-conditions widget).
+function getWxIcon(condition, timeOfDay = 'day') {
+  if (timeOfDay === 'auto') timeOfDay = isNightNow() ? 'night' : 'day';
+  let file = pickWxIconFile(condition);
+  const map = timeOfDay === 'night' ? WX_NIGHT_FROM_DAY : WX_DAY_FROM_NIGHT;
+  if (map[file]) file = map[file];
+  return wxIconImg(file);
 }
 
 function renderWeatherSidebar(locationKey) {
@@ -1314,7 +1346,9 @@ async function fetchCurrentWeather() {
     const res = await fetch(`/api/current-weather?lat=${lat}&lon=${lon}`);
     const data = await res.json();
     if (data.temperature != null) {
-      document.getElementById('conditionsIcon').innerHTML = getWxIcon(data.description);
+      // Bottom-right current conditions: use real time of day so we show
+      // the moon at night and the sun during the day.
+      document.getElementById('conditionsIcon').innerHTML = getWxIcon(data.description, 'auto');
       document.getElementById('conditionsTemp').innerHTML = data.temperature + '&deg;F';
     }
   } catch (e) {
