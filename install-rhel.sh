@@ -60,6 +60,22 @@ detect_pm() {
     exit 1
   fi
   log "Using package manager: $PM"
+
+  # --allowerasing lets dnf swap conflicting packages (e.g. replace
+  # curl-minimal with curl on UBI / minimal images) instead of bailing out
+  # with a "conflicting requests" error. yum on EL7 also accepts the flag.
+  PM_INSTALL_FLAGS="-y --allowerasing --best"
+  PM_INSTALL="$PM $PM_INSTALL_FLAGS install"
+}
+
+# Wrapper so package installs are resilient: try --allowerasing first
+# (resolves curl vs curl-minimal style conflicts) and fall back to
+# --skip-broken if a single bad package is blocking the rest.
+pm_install() {
+  if ! $PM_INSTALL "$@"; then
+    warn "Install failed; retrying with --skip-broken..."
+    $PM -y --allowerasing --skip-broken install "$@"
+  fi
 }
 
 # Run a command as the application service user with a login-ish env.
@@ -74,16 +90,31 @@ require_root
 detect_pm
 
 log "Updating system packages..."
-$PM -y update
+# --allowerasing lets the update swap curl-minimal -> curl (and similar
+# minimal/full variants) automatically rather than failing.
+$PM -y --allowerasing update || {
+  warn "Full update failed; retrying with --skip-broken..."
+  $PM -y --allowerasing --skip-broken update || true
+}
 
-log "Installing base packages (git, curl, openssh-clients, tools)..."
-$PM -y install git curl tar gcc-c++ make policycoreutils-python-utils openssh-clients
+log "Installing base packages (git, openssh-clients, build tools)..."
+# Note: we deliberately don't list 'curl' here. On UBI / minimal RHEL
+# images, curl-minimal already provides the curl binary, and explicitly
+# asking for 'curl' triggers a conflict. If something downstream truly
+# needs the full curl package, pm_install --allowerasing handles the swap.
+pm_install git tar gcc-c++ make policycoreutils-python-utils openssh-clients
+
+# Make sure something providing /usr/bin/curl is present (curl OR curl-minimal).
+if ! command -v curl >/dev/null 2>&1; then
+  log "No curl binary found — installing curl-minimal..."
+  pm_install curl-minimal || pm_install curl
+fi
 
 # -------------------- Step 1: Node.js -------------------------------------
 if ! command -v node >/dev/null 2>&1 || ! node --version | grep -q "^v${NODE_MAJOR}\."; then
   log "Installing Node.js ${NODE_MAJOR}.x from NodeSource..."
   curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
-  $PM -y install nodejs
+  pm_install nodejs
 else
   log "Node.js $(node --version) already installed."
 fi
@@ -266,7 +297,7 @@ fi
 
 # -------------------- Step 9: Nginx reverse proxy -------------------------
 log "Installing Nginx..."
-$PM -y install nginx
+pm_install nginx
 
 SERVER_NAME="${DOMAIN:-_}"
 NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
@@ -307,8 +338,8 @@ systemctl enable --now nginx
 # -------------------- Step 11: HTTPS via Let's Encrypt (optional) ---------
 if [[ -n "$DOMAIN" ]]; then
   log "Installing certbot for Let's Encrypt..."
-  $PM -y install epel-release || true
-  $PM -y install certbot python3-certbot-nginx
+  pm_install epel-release || true
+  pm_install certbot python3-certbot-nginx
   log "Requesting certificate for ${DOMAIN}..."
   if certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos \
        --register-unsafely-without-email --redirect; then
@@ -322,7 +353,7 @@ fi
 
 # -------------------- Step 12: Cron jobs for data refresh -----------------
 log "Installing cron jobs for periodic data refresh..."
-$PM -y install cronie
+pm_install cronie
 systemctl enable --now crond
 
 CRON_LOG="/var/log/${APP_NAME}-cron.log"
