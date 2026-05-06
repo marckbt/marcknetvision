@@ -1,0 +1,36 @@
+# --- Dependencies (rebuilt inside the image) -------------------------------
+node_modules
+npm-debug.log*
+
+# --- Local artifacts that shouldn't ship in the image ----------------------
+.DS_Store
+.git
+.gitignore
+.env
+.env.*
+
+# --- Generated weather/schedule data (regenerated at build + runtime) ------
+public/data/
+
+# --- Personal / archive content from the project root ----------------------
+Archive/
+1992 CC/
+1992 CC 2/
+1992 CC.zip
+*.gif
+*.webp
+*.zip
+*.pdf
+*.xml
+
+# --- Editor / OS junk ------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- Container artifacts ---------------------------------------------------
+Dockerfile
+.dockerignore
+DEPLOYMENT.md
+install-rhel.sh
