@@ -12,6 +12,24 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const parser = new RSSParser();
 
+// --- RSS freshness window --------------------------------------------------
+// Drop any story whose publish date is more than this many days old, both
+// when we ingest items from a feed and when we serve from the in-memory
+// cache. This keeps the ticker / news panels focused on recent content
+// and bounds memory usage as the cache turns over.
+const MAX_ARTICLE_AGE_DAYS = 5;
+const MAX_ARTICLE_AGE_MS = MAX_ARTICLE_AGE_DAYS * 24 * 60 * 60 * 1000;
+
+// Returns true if the item's pubDate is within MAX_ARTICLE_AGE_DAYS of now.
+// Items with no/unparseable date are rejected — we'd rather drop an
+// undateable item than store one that might be ancient.
+function isFresh(pubDateValue) {
+  if (!pubDateValue) return false;
+  const t = new Date(pubDateValue).getTime();
+  if (!Number.isFinite(t)) return false;
+  return (Date.now() - t) <= MAX_ARTICLE_AGE_MS;
+}
+
 app.use(express.static('public'));
 app.use('/archive', express.static('Archive'));
 
@@ -134,19 +152,30 @@ app.get('/api/news/:category', async (req, res) => {
   const forceRefresh = req.query.refresh === '1';
   const cacheKey = category;
   if (!forceRefresh && feedCache[cacheKey] && Date.now() - feedCache[cacheKey].time < CACHE_DURATION) {
-    return res.json(feedCache[cacheKey].data);
+    // Re-filter the cached payload so stories don't survive past the
+    // freshness window just because the cache hasn't expired yet.
+    const cached = feedCache[cacheKey].data.filter(a => isFresh(a.pubDate));
+    return res.json(cached);
   }
 
   const articles = [];
+  let droppedStale = 0;
   const feedPromises = feeds.map(async (feed) => {
     try {
       const result = await parser.parseURL(feed.url);
       result.items.slice(0, 5).forEach(item => {
+        const pubDate = item.pubDate || item.isoDate || '';
+        // Skip anything older than MAX_ARTICLE_AGE_DAYS so it never
+        // makes it into memory or the cache.
+        if (!isFresh(pubDate)) {
+          droppedStale++;
+          return;
+        }
         articles.push({
           source: feed.name,
           title: item.title || 'Untitled',
           link: item.link || '#',
-          pubDate: item.pubDate || item.isoDate || '',
+          pubDate,
           snippet: (item.contentSnippet || item.content || '').substring(0, 200),
         });
       });
@@ -157,6 +186,10 @@ app.get('/api/news/:category', async (req, res) => {
 
   await Promise.all(feedPromises);
   articles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
+
+  if (droppedStale > 0) {
+    console.log(`[news/${category}] dropped ${droppedStale} stale items (>${MAX_ARTICLE_AGE_DAYS}d old)`);
+  }
 
   feedCache[cacheKey] = { time: Date.now(), data: articles };
   res.json(articles);

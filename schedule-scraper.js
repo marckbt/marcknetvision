@@ -51,6 +51,90 @@ async function fetchESPNGuideFeed() {
   return parseESPNGuideEvents(allEvents);
 }
 
+// Pull the broadcast / streaming channel out of an ESPN Guide event.
+//
+// Confirmed JSON shape (Guide Feed v2 with STREAM_MENU configuration):
+//   event.watch.broadcasts[] — array of { priority, type.slug, market.type,
+//                                         media.shortName, station, ... }
+//     type.slug    = "television" | "streaming" | "radio"
+//     market.type  = "National" | "Home" | "Away" | "Not Applicable"
+//     priority     = 1-N, lower is better
+//   event.watch.tags[]       — convenience flat array of station names
+//
+// We prefer National TV, then any TV, then National streaming, then
+// other streaming — capped at 2 names so the ticker stays readable.
+// Returns '' if no broadcaster info is in the JSON (caller renders 'TBD').
+function extractNetwork(event) {
+  const broadcasts = event?.watch?.broadcasts;
+  const tags       = event?.watch?.tags;
+
+  // Helper: rank a broadcast entry. Lower = better.
+  const score = (b) => {
+    const t  = (b?.type?.slug || '').toLowerCase();      // television / streaming / radio
+    const m  = (b?.market?.type || '').toLowerCase();    // national / home / away / not applicable
+    let base;
+    if (t === 'television' && m === 'national')      base = 0;
+    else if (t === 'television')                     base = 1;
+    else if (t === 'streaming' && m === 'national')  base = 2;
+    else if (t === 'streaming')                      base = 3;
+    else if (t === 'radio')                          base = 5;
+    else                                             base = 4;
+    // Within the same bucket, respect ESPN's own priority field (1 best).
+    return base * 100 + (Number.isFinite(b?.priority) ? b.priority : 99);
+  };
+
+  const nameOf = (b) =>
+    (b?.media?.shortName || b?.media?.name || b?.station || b?.media?.callLetters || '').trim();
+
+  const uniq = (arr) => {
+    const seen = new Set();
+    const out = [];
+    for (const v of arr) {
+      const key = v.toLowerCase();
+      if (v && !seen.has(key)) { seen.add(key); out.push(v); }
+    }
+    return out;
+  };
+
+  // 1) Preferred path — sort the broadcasts array, take top 2 by rank.
+  if (Array.isArray(broadcasts) && broadcasts.length) {
+    const ranked = broadcasts
+      .slice()
+      .sort((a, b) => score(a) - score(b))
+      .map(nameOf)
+      .filter(Boolean);
+    const list = uniq(ranked).slice(0, 2);
+    if (list.length) return list.join(' / ');
+  }
+
+  // 2) Fallback — ESPN provides a flat `tags` array of station names. Take
+  //    the first 2; this trips when broadcasts[] is missing but tags isn't.
+  if (Array.isArray(tags) && tags.length) {
+    const list = uniq(tags.map(t => String(t || '').trim()).filter(Boolean)).slice(0, 2);
+    if (list.length) return list.join(' / ');
+  }
+
+  return '';
+}
+
+// Build the best user-facing watch / gamecast URL for an ESPN Guide event.
+//
+// The Guide Feed doesn't expose a clean spectator URL — `event.watch.style.link`
+// is an internal API picker endpoint that won't render in a popup. What it
+// DOES expose is `event.id` and `event.league.slug`, which combine into
+// the standard ESPN gamecast URL pattern:
+//
+//   https://www.espn.com/{league.slug}/game/_/gameId/{event.id}
+//
+// That URL renders the live game tracker with play-by-play, score, and
+// (for ESPN+ games) a "Watch" button. Returns '' if either piece is missing.
+function extractGameLink(event) {
+  const id = event?.id;
+  const leagueSlug = event?.league?.slug;
+  if (!id || !leagueSlug) return '';
+  return `https://www.espn.com/${leagueSlug}/game/_/gameId/${id}`;
+}
+
 // Parse ESPN Guide events into schedule items
 function parseESPNGuideEvents(events) {
   const items = [];
@@ -126,11 +210,10 @@ function parseESPNGuideEvents(events) {
       matchup = eventName;
     }
 
-    // Get network/broadcast info from status detail
-    let network = '';
-    const detail = event.status?.type?.shortDetail || event.status?.type?.detail || '';
-    // The detail sometimes includes the network info - but mainly use ESPN+ as default
-    network = 'ESPN+';
+    // Get network/broadcast info from the JSON feed (airings/broadcasts).
+    // Falls back to 'TBD' rather than 'ESPN+' so we don't lie about where
+    // the game is actually airing.
+    const network = extractNetwork(event) || 'TBD';
 
     // Determine sport label
     const sportLabel = leagueLabel
@@ -142,6 +225,7 @@ function parseESPNGuideEvents(events) {
       matchup,
       network,
       time,
+      link: extractGameLink(event),
       sortTime: dateStr,
     });
   }

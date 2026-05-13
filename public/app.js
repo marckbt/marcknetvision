@@ -431,6 +431,26 @@ function showESPNLive() {
   );
 }
 
+// Open a sports game / stream link in a popup sized to the main content
+// panel (same sizing as the ESPN/DW live popups, so it doesn't overlap
+// the bottom ticker).
+function showGamePopup(url) {
+  if (!url) return;
+  const main = document.getElementById('mainContent');
+  const rect = main.getBoundingClientRect();
+  const ticker = document.getElementById('tickerBar');
+  const tickerH = ticker ? ticker.getBoundingClientRect().height : 0;
+  const left = window.screenX + rect.left;
+  const top = window.screenY + rect.top + (window.outerHeight - window.innerHeight);
+  const width = Math.round(rect.width);
+  const height = Math.round(rect.height - tickerH);
+  window.open(
+    url,
+    'gamePopup',
+    `width=${width},height=${height},left=${Math.round(left)},top=${Math.round(top)},menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`
+  );
+}
+
 function openArticlePopup(url) {
   const main = document.getElementById('mainContent');
   const rect = main.getBoundingClientRect();
@@ -1448,18 +1468,32 @@ function renderEventsSidebar(items) {
     return;
   }
   const sorted = sortEvents(items);
-  scrollArea.innerHTML = sorted.map(item => `
-    <div class="event-card">
+  scrollArea.innerHTML = sorted.map(item => {
+    // Only cards with a usable link become clickable. We escape the URL
+    // for both HTML-attribute context and the inline JS string.
+    const rawLink = (item.link || '').trim();
+    const safeLink = rawLink.replace(/'/g, "\\'");
+    const isClickable = !!rawLink;
+    const clickAttr = isClickable
+      ? `onclick="showGamePopup('${escapeHtml(safeLink)}'); return false;"`
+      : '';
+    const cls = isClickable ? 'event-card event-card-clickable' : 'event-card';
+    const watchHint = isClickable
+      ? `<span class="event-watch" title="Watch">&#9654;</span>`
+      : '';
+    return `
+    <div class="${cls}" ${clickAttr}>
       <div class="event-header">
         <span class="event-sport sport-badge ${sportClassFn(item.sport)}">${escapeHtml(item.sport)}</span>
+        ${watchHint}
       </div>
       <div class="event-matchup">${escapeHtml(item.matchup)}</div>
       <div class="event-meta">
         <span>${escapeHtml(item.network || '')}</span>
         <span class="event-time">${escapeHtml(item.time || '')}</span>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 async function getAllNewsForTicker() {
@@ -1502,8 +1536,18 @@ function renderNewsTicker(articles) {
 
   const itemsHtml = articles.map(a => {
     const timeAgo = getTimeAgo(a.pubDate);
+    // Mirror the left-panel news cards: clicking opens the bottom-left
+    // article popup (#newsPopup) via showNewsDetail(article). That popup
+    // shows source / title / snippet / "Read Full Article" — clicking
+    // that link then opens the external popup, same as the sidebar flow.
+    // We serialize the whole article into the onclick handler exactly
+    // like renderNewsCards() does.
+    const hasLink = !!(a && (a.link || '').trim() && a.link !== '#');
+    const cls = hasLink ? 'ticker-news-item ticker-news-item-clickable' : 'ticker-news-item';
+    const payload = JSON.stringify(a).replace(/"/g, '&quot;');
+    const clickAttr = hasLink ? `onclick="showNewsDetail(${payload})"` : '';
     return `
-      <div class="ticker-news-item">
+      <div class="${cls}" ${clickAttr}>
         <span class="news-source-badge">${escapeHtml(a.source)}</span>
         <span class="news-headline">${escapeHtml(a.title)}</span>
         <span class="news-time">${timeAgo}</span>

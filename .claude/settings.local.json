@@ -37,7 +37,8 @@
       "Bash(/usr/local/bin/node -e \"const { refreshSchedule } = require\\(''./schedule-scraper''\\); refreshSchedule\\(\\).then\\(data => { const withLinks = data.filter\\(d => d.link\\); console.log\\(''Events with links:'', withLinks.length, ''/'', data.length\\); withLinks.slice\\(0,3\\).forEach\\(d => console.log\\('' '', d.matchup, ''|'', d.link\\)\\); }\\);\")",
       "Bash(gh auth:*)",
       "Bash(chmod +x \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/install-rhel.sh\")",
-      "Bash(grep -n '\\\\$PM -y' '/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/install-rhel.sh')"
+      "Bash(grep -n '\\\\$PM -y' '/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/install-rhel.sh')",
+      "Bash(node -e ' *)"
     ]
   }
 }

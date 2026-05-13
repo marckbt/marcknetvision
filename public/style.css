@@ -1195,6 +1195,26 @@ html, body {
   font-weight: 700;
   color: var(--accent);
 }
+/* Clickable event cards (events that have a watch / gamecast link) */
+.event-card.event-card-clickable {
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.event-card.event-card-clickable:hover {
+  transform: translateX(2px);
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+.event-card .event-watch {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  opacity: 0.65;
+  user-select: none;
+}
+.event-card.event-card-clickable:hover .event-watch {
+  opacity: 1;
+}
 /* --- Ticker news items (swapped mode) --- */
 .ticker-news-item {
   display: inline-flex;
@@ -1229,6 +1249,24 @@ html, body {
   font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+/* Clickable ticker headlines (news mode, swapped layout) */
+.ticker-news-item-clickable {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ticker-news-item-clickable:hover .news-headline {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.ticker-news-item-clickable:hover .news-source-badge {
+  background: var(--accent);
+  color: #fff;
+}
+/* Pause the marquee while the user is hovering so they can actually
+   click a moving headline. The scroll resumes when the cursor leaves. */
+#tickerTrack:hover {
+  animation-play-state: paused;
 }
 
 .ticker-loading {
