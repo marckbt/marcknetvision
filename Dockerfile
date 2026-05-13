@@ -345,6 +345,7 @@ if [[ -n "${TLS_DOMAIN}" ]]; then
     CERTBOT_ARGS=(
       --nginx
       -d "${TLS_DOMAIN}"
+      --cert-name "${TLS_DOMAIN}"
       --non-interactive
       --agree-tos
       --redirect
@@ -373,7 +374,14 @@ if [[ -n "${TLS_DOMAIN}" ]]; then
     echo "[entrypoint] existing Let's Encrypt cert found — reloading nginx with HTTPS."
     # The cert is on disk but the running nginx config doesn't reference it
     # yet. Have certbot re-install (no new request, no rate-limit cost).
-    /usr/bin/certbot install --nginx -d "${TLS_DOMAIN}" --non-interactive --redirect \
+    #
+    # NOTE: `certbot install` selects the cert by lineage name (--cert-name),
+    # NOT by domain. Passing -d here makes certbot prompt with
+    #   "Which certificate would you like to install?"
+    # which fails under --non-interactive. Use --cert-name instead.
+    /usr/bin/certbot install --nginx \
+      --cert-name "${TLS_DOMAIN}" \
+      --non-interactive --redirect \
       || echo "[entrypoint] WARNING: certbot install failed; serving HTTP only."
   fi
 fi
