@@ -12,22 +12,87 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const parser = new RSSParser();
 
+// Reddit blocks rss-parser's built-in HTTP client (403/429) even with a
+// browser User-Agent — its request signature differs from a normal
+// browser/fetch. node-fetch, however, gets a clean 200. So for any
+// reddit.com feed we fetch the XML ourselves and hand the string to the
+// parser; everything else uses the parser's own parseURL().
+const REDDIT_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
+function isRedditUrl(url) {
+  return /(^|\.)reddit\.com/i.test(url || '');
+}
+async function fetchAndParseFeed(url) {
+  if (isRedditUrl(url)) {
+    const res = await fetch(url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': REDDIT_UA,
+        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+      },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const xml = await res.text();
+    return parser.parseString(xml);
+  }
+  return parser.parseURL(url);
+}
+
 // --- RSS freshness window --------------------------------------------------
-// Drop any story whose publish date is more than this many days old, both
-// when we ingest items from a feed and when we serve from the in-memory
-// cache. This keeps the ticker / news panels focused on recent content
-// and bounds memory usage as the cache turns over.
+// Drop any story whose publish date is older than the category's window,
+// both when we ingest items from a feed and when we serve from the
+// in-memory cache. Keeps panels focused on recent content and bounds
+// memory as the cache turns over.
 const MAX_ARTICLE_AGE_DAYS = 5;
 const MAX_ARTICLE_AGE_MS = MAX_ARTICLE_AGE_DAYS * 24 * 60 * 60 * 1000;
 
-// Returns true if the item's pubDate is within MAX_ARTICLE_AGE_DAYS of now.
-// Items with no/unparseable date are rejected — we'd rather drop an
-// undateable item than store one that might be ancient.
-function isFresh(pubDateValue) {
+// Per-category overrides for how many items to keep per feed and how old
+// an item may be. Anything not listed uses DEFAULT_CATEGORY_LIMITS.
+const DEFAULT_CATEGORY_LIMITS = { perFeed: 5, maxAgeMs: MAX_ARTICLE_AGE_MS };
+const CATEGORY_LIMITS = {
+  // Reddit: at most 10 posts per subreddit, nothing older than 48 hours.
+  Reddit: { perFeed: 10, maxAgeMs: 48 * 60 * 60 * 1000 },
+};
+function limitsFor(category) {
+  return CATEGORY_LIMITS[category] || DEFAULT_CATEGORY_LIMITS;
+}
+
+// Returns true if the item's pubDate is within maxAgeMs of now. Items
+// with no/unparseable date are rejected — we'd rather drop an undateable
+// item than store one that might be ancient.
+function isFresh(pubDateValue, maxAgeMs = MAX_ARTICLE_AGE_MS) {
   if (!pubDateValue) return false;
   const t = new Date(pubDateValue).getTime();
   if (!Number.isFinite(t)) return false;
-  return (Date.now() - t) <= MAX_ARTICLE_AGE_MS;
+  return (Date.now() - t) <= maxAgeMs;
+}
+
+// --- Reddit subreddit list (maintained in reddit-feeds.json) ---------------
+const REDDIT_FEEDS_PATH = path.join(__dirname, 'reddit-feeds.json');
+
+// Read reddit-feeds.json and turn it into the same [{name,url}] shape the
+// other categories use. Accepts plain subreddit strings ("delta") or
+// {name,url} objects for custom/multireddit feeds. Returns [] on any error
+// so a malformed file never crashes the server.
+function loadRedditFeeds() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(REDDIT_FEEDS_PATH, 'utf8'));
+    const entries = Array.isArray(raw) ? raw : (raw.subreddits || []);
+    const feeds = [];
+    for (const e of entries) {
+      if (typeof e === 'string') {
+        const slug = e.trim().replace(/^\/?r\//i, '').replace(/\/+$/,'');
+        if (!slug) continue;
+        feeds.push({ name: `r/${slug}`, url: `https://www.reddit.com/r/${slug}/.rss` });
+      } else if (e && e.url) {
+        feeds.push({ name: e.name || e.url, url: e.url });
+      }
+    }
+    console.log(`[Reddit] Loaded ${feeds.length} subreddit feed(s) from reddit-feeds.json`);
+    return feeds;
+  } catch (e) {
+    console.error(`[Reddit] Could not load reddit-feeds.json: ${e.message}`);
+    return [];
+  }
 }
 
 app.use(express.static('public'));
@@ -117,6 +182,11 @@ const FEED_CATEGORIES = {
   ],
 };
 
+// Reddit section — built from reddit-feeds.json so the subreddit list is
+// maintainable without touching code. Appears as its own news tab/section
+// (and flows into the ticker) exactly like Tech, Aviation, etc.
+FEED_CATEGORIES.Reddit = loadRedditFeeds();
+
 // Cache for RSS feeds
 const feedCache = {};
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
@@ -124,6 +194,10 @@ const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 // API: Clear cache and refresh all data (news + weather + schedule)
 app.post('/api/refresh', async (req, res) => {
   Object.keys(feedCache).forEach(k => delete feedCache[k]);
+
+  // Re-read the subreddit list so edits to reddit-feeds.json take effect
+  // on refresh without a server restart.
+  FEED_CATEGORIES.Reddit = loadRedditFeeds();
 
   // Refresh weather and schedule in parallel
   const results = await Promise.allSettled([
@@ -149,12 +223,15 @@ app.get('/api/news/:category', async (req, res) => {
     return res.status(404).json({ error: 'Category not found' });
   }
 
+  // Per-category limits (Reddit = 10/feed, 48h; everything else 5/feed, 5d).
+  const { perFeed, maxAgeMs } = limitsFor(category);
+
   const forceRefresh = req.query.refresh === '1';
   const cacheKey = category;
   if (!forceRefresh && feedCache[cacheKey] && Date.now() - feedCache[cacheKey].time < CACHE_DURATION) {
     // Re-filter the cached payload so stories don't survive past the
     // freshness window just because the cache hasn't expired yet.
-    const cached = feedCache[cacheKey].data.filter(a => isFresh(a.pubDate));
+    const cached = feedCache[cacheKey].data.filter(a => isFresh(a.pubDate, maxAgeMs));
     return res.json(cached);
   }
 
@@ -162,12 +239,12 @@ app.get('/api/news/:category', async (req, res) => {
   let droppedStale = 0;
   const feedPromises = feeds.map(async (feed) => {
     try {
-      const result = await parser.parseURL(feed.url);
-      result.items.slice(0, 5).forEach(item => {
+      const result = await fetchAndParseFeed(feed.url);
+      result.items.slice(0, perFeed).forEach(item => {
         const pubDate = item.pubDate || item.isoDate || '';
-        // Skip anything older than MAX_ARTICLE_AGE_DAYS so it never
-        // makes it into memory or the cache.
-        if (!isFresh(pubDate)) {
+        // Skip anything older than the category's freshness window so it
+        // never makes it into memory or the cache.
+        if (!isFresh(pubDate, maxAgeMs)) {
           droppedStale++;
           return;
         }
@@ -188,7 +265,8 @@ app.get('/api/news/:category', async (req, res) => {
   articles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
 
   if (droppedStale > 0) {
-    console.log(`[news/${category}] dropped ${droppedStale} stale items (>${MAX_ARTICLE_AGE_DAYS}d old)`);
+    const hrs = Math.round(maxAgeMs / 3600000);
+    console.log(`[news/${category}] dropped ${droppedStale} stale items (>${hrs}h old)`);
   }
 
   feedCache[cacheKey] = { time: Date.now(), data: articles };

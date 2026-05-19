@@ -431,6 +431,22 @@ function showESPNLive() {
   );
 }
 
+function showYouTubeTV() {
+  const main = document.getElementById('mainContent');
+  const rect = main.getBoundingClientRect();
+  const ticker = document.getElementById('tickerBar');
+  const tickerH = ticker ? ticker.getBoundingClientRect().height : 0;
+  const left = window.screenX + rect.left;
+  const top = window.screenY + rect.top + (window.outerHeight - window.innerHeight);
+  const width = Math.round(rect.width);
+  const height = Math.round(rect.height - tickerH);
+  window.open(
+    'https://tv.youtube.com/',
+    'youtubeTVLive',
+    `width=${width},height=${height},left=${Math.round(left)},top=${Math.round(top)},menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`
+  );
+}
+
 // Open a sports game / stream link in a popup sized to the main content
 // panel (same sizing as the ESPN/DW live popups, so it doesn't overlap
 // the bottom ticker).
@@ -663,6 +679,42 @@ async function loadSchedule() {
   }
 }
 
+// Shared play-icon / clickability logic for an event, used by both the
+// events sidebar and the bottom ticker so they stay visually identical.
+// Returns the clickable flag, the inline onclick attribute, and the
+// colored ▶ icon markup. State by start time:
+//   • not started yet   -> accent  (upcoming)
+//   • started <= 4h ago  -> green   (likely live)
+//   • started > 4h ago   -> red     (likely over / stale link)
+function buildEventWatch(item) {
+  const rawLink = (item && item.link ? String(item.link) : '').trim();
+  const isClickable = !!rawLink;
+  const safeLink = rawLink.replace(/'/g, "\\'");
+
+  let watchStateClass = 'event-watch--upcoming';
+  let watchTitle = 'Watch';
+  const startMs = item && item.sortTime ? new Date(item.sortTime).getTime() : NaN;
+  if (Number.isFinite(startMs)) {
+    const ageMs = Date.now() - startMs;
+    const FOUR_HOURS = 4 * 60 * 60 * 1000;
+    if (ageMs >= FOUR_HOURS) {
+      watchStateClass = 'event-watch--stale';
+      watchTitle = 'Started over 4h ago';
+    } else if (ageMs >= 0) {
+      watchStateClass = 'event-watch--live';
+      watchTitle = 'In progress';
+    }
+  }
+
+  const clickAttr = isClickable
+    ? `onclick="showGamePopup('${escapeHtml(safeLink)}'); return false;"`
+    : '';
+  const watchHint = isClickable
+    ? `<span class="event-watch ${watchStateClass}" title="${watchTitle}">&#9654;</span>`
+    : '';
+  return { isClickable, clickAttr, watchHint };
+}
+
 function renderTicker(items) {
   const track = document.getElementById('tickerTrack');
   if (!items || !items.length) {
@@ -671,14 +723,19 @@ function renderTicker(items) {
   }
 
   const sorted = sortEvents(items);
-  const itemsHtml = sorted.map(item => `
-    <div class="ticker-item">
+  const itemsHtml = sorted.map(item => {
+    const { isClickable, clickAttr, watchHint } = buildEventWatch(item);
+    const cls = isClickable ? 'ticker-item ticker-item-clickable' : 'ticker-item';
+    return `
+    <div class="${cls}" ${clickAttr}>
       <span class="sport-badge ${getSportClass(item.sport)}">${escapeHtml(item.sport)}</span>
       <span class="matchup">${escapeHtml(item.matchup)}</span>
       <span class="network">${escapeHtml(item.network || '')}</span>
       <span class="time">${escapeHtml(item.time || '')}</span>
+      ${watchHint}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   // Duplicate for seamless scrolling
   track.innerHTML = itemsHtml + itemsHtml;
@@ -1469,18 +1526,8 @@ function renderEventsSidebar(items) {
   }
   const sorted = sortEvents(items);
   scrollArea.innerHTML = sorted.map(item => {
-    // Only cards with a usable link become clickable. We escape the URL
-    // for both HTML-attribute context and the inline JS string.
-    const rawLink = (item.link || '').trim();
-    const safeLink = rawLink.replace(/'/g, "\\'");
-    const isClickable = !!rawLink;
-    const clickAttr = isClickable
-      ? `onclick="showGamePopup('${escapeHtml(safeLink)}'); return false;"`
-      : '';
+    const { isClickable, clickAttr, watchHint } = buildEventWatch(item);
     const cls = isClickable ? 'event-card event-card-clickable' : 'event-card';
-    const watchHint = isClickable
-      ? `<span class="event-watch" title="Watch">&#9654;</span>`
-      : '';
     return `
     <div class="${cls}" ${clickAttr}>
       <div class="event-header">
