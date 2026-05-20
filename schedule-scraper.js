@@ -140,6 +140,8 @@ function parseESPNGuideEvents(events) {
   const items = [];
   const now = new Date();
   const maxFuture = new Date(now.getTime() + 20 * 60 * 60 * 1000);
+  // Keep events visible until 5 hours past their start time.
+  const minPast = new Date(now.getTime() - 5 * 60 * 60 * 1000);
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   for (const event of events) {
@@ -173,7 +175,7 @@ function parseESPNGuideEvents(events) {
     if (!dateStr) continue;
     const eventDate = new Date(dateStr);
 
-    if (eventDate < todayStart || eventDate > maxFuture) continue;
+    if (eventDate < minPast || eventDate > maxFuture) continue;
 
     // Skip midnight placeholder events
     const etHour = parseInt(eventDate.toLocaleTimeString('en-US', {
@@ -296,7 +298,8 @@ async function fetchTeamLiquidSC2() {
           const eventDate = new Date(yearNum, etMonth - 1, etDay, etHour, minute);
 
           // Check if within next 24 hours
-          if (eventDate >= new Date(now.getTime() - 2 * 60 * 60 * 1000) && eventDate <= tomorrow) {
+          // Keep SC2 events visible until 5 hours past their start time.
+          if (eventDate >= new Date(now.getTime() - 5 * 60 * 60 * 1000) && eventDate <= tomorrow) {
             const isOver = ev.$.over === '1';
             const title = (typeof ev.title === 'string' ? ev.title : ev.title?._ || '').trim();
             const desc = (typeof ev.description === 'string' ? ev.description : ev.description?._ || '').trim();
@@ -399,6 +402,49 @@ function filterAndSort(allItems) {
   return result;
 }
 
+// Merge newly-scraped events with whatever's still fresh from the prior
+// schedule.json. ESPN's Guide Feed drops events from its response once
+// they end (often within 2-4h of start), but we promise to display them
+// for 5 hours past their start time. Without this merge, an event that
+// rolls off ESPN's feed at the 3h mark would also vanish from our UI at
+// the next scrape, breaking that promise. We keep any prior item whose
+// sortTime is within the 5h window and isn't already in the new scrape.
+function mergeWithPreviousSchedule(newItems, schedulePath) {
+  const FIVE_HOURS = 5 * 60 * 60 * 1000;
+  const cutoff = Date.now() - FIVE_HOURS;
+  let prior = [];
+  try {
+    if (fs.existsSync(schedulePath)) {
+      prior = JSON.parse(fs.readFileSync(schedulePath, 'utf8'));
+    }
+  } catch (e) {
+    console.error(`[Schedule] Could not read prior schedule: ${e.message}`);
+    return newItems;
+  }
+  if (!Array.isArray(prior) || prior.length === 0) return newItems;
+
+  // Key an event by sport+matchup+sortTime — strong enough to dedupe
+  // ESPN games that survive between scrapes and SC2 entries by title.
+  const keyOf = (it) => `${it.sport}|${it.matchup}|${it.sortTime || it.time || ''}`;
+  const haveKeys = new Set(newItems.map(keyOf));
+
+  let retained = 0;
+  const carryOvers = [];
+  for (const item of prior) {
+    if (haveKeys.has(keyOf(item))) continue;
+    const t = item.sortTime ? new Date(item.sortTime).getTime() : NaN;
+    // No usable timestamp → skip (we can't prove it's still fresh).
+    if (!Number.isFinite(t)) continue;
+    if (t < cutoff) continue;
+    carryOvers.push(item);
+    retained++;
+  }
+  if (retained > 0) {
+    console.log(`[Schedule] Carried over ${retained} in-progress events from prior schedule (still within 5h window)`);
+  }
+  return [...newItems, ...carryOvers];
+}
+
 // Main: refresh schedule
 async function refreshSchedule() {
   console.log('[Schedule] Refreshing sports schedule...');
@@ -415,9 +461,14 @@ async function refreshSchedule() {
   const filtered = filterAndSort(allItems);
   console.log(`[Schedule] Filtered items: ${filtered.length}`);
 
-  // Save schedule
+  // Merge with the previous schedule so events ESPN has already dropped
+  // (because they finished) still display until they're 5h past start.
   const schedulePath = path.join(__dirname, 'public', 'data', 'schedule.json');
-  fs.writeFileSync(schedulePath, JSON.stringify(filtered, null, 2));
+  const merged = mergeWithPreviousSchedule(filtered, schedulePath);
+  console.log(`[Schedule] After merge with prior schedule: ${merged.length}`);
+
+  // Save schedule
+  fs.writeFileSync(schedulePath, JSON.stringify(merged, null, 2));
   console.log(`[Schedule] Saved to ${schedulePath}`);
 
   // Save SC2 events separately

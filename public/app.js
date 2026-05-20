@@ -54,6 +54,107 @@ themeToggle.addEventListener('click', () => {
 // Init theme
 setTheme(localStorage.getItem('mnv-theme') || 'dark');
 
+// --- Mobile Hamburger Menu ---
+// The hamburger is only visible on small viewports (CSS-controlled).
+// Toggling body.menu-open shows/hides the #topControls drawer.
+(function initMobileMenu() {
+  const toggle = document.getElementById('mobileMenuToggle');
+  const controls = document.getElementById('topControls');
+  if (!toggle || !controls) return;
+
+  function setOpen(open) {
+    document.body.classList.toggle('menu-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  }
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(!document.body.classList.contains('menu-open'));
+  });
+
+  // Tap outside the drawer closes it. We don't close on taps inside
+  // #topControls itself so users can interact with the buttons.
+  document.addEventListener('click', (e) => {
+    if (!document.body.classList.contains('menu-open')) return;
+    if (controls.contains(e.target) || toggle.contains(e.target)) return;
+    setOpen(false);
+  });
+
+  // Close the menu after the user activates any control inside it,
+  // so they're not left staring at a drawer covering the content.
+  // Exceptions: tapping the location chip (opens its inline dropdown),
+  // typing in the search input, and clicking the reset button — those
+  // keep the drawer open so the city list stays visible.
+  controls.addEventListener('click', (e) => {
+    const target = e.target;
+    // Tapping a city result should close everything.
+    if (target.closest('.location-result-item')) {
+      setTimeout(() => setOpen(false), 0);
+      return;
+    }
+    // Anything inside the location dropdown UI (search input, etc.)
+    // should leave the drawer open.
+    if (target.closest('.location-wrapper')) return;
+    const btn = target.closest('button');
+    if (!btn) return;
+    setTimeout(() => setOpen(false), 0);
+  });
+
+  // If the viewport grows past the mobile breakpoint while the drawer
+  // is open, drop the open state so the controls render inline.
+  const mq = window.matchMedia('(max-width: 900px)');
+  mq.addEventListener?.('change', (ev) => {
+    if (!ev.matches) setOpen(false);
+  });
+})();
+
+// --- Mobile Ticker Relocation ---
+// On mobile, the LIVE VIDEO section is replaced by the bottom ticker.
+// We physically move #tickerBar into the .sidebar-bottom slot (in front
+// of the original live-video header/area, which gets hidden via CSS),
+// and let the original ticker position at the bottom of the viewport
+// collapse. On desktop we move it back. The ticker's animation-duration
+// recalculation is rerun after relocation so the scroll speed adapts
+// to the new container width.
+(function initMobileTickerRelocation() {
+  const tickerBar = document.getElementById('tickerBar');
+  const sidebarBottom = document.querySelector('#weatherSidebar .sidebar-bottom');
+  if (!tickerBar || !sidebarBottom) return;
+  const originalParent = tickerBar.parentNode;
+  const originalNext = tickerBar.nextSibling;
+  const mq = window.matchMedia('(max-width: 900px)');
+
+  function recalcTickerSpeed() {
+    const track = document.getElementById('tickerTrack');
+    if (!track) return;
+    requestAnimationFrame(() => {
+      const totalWidth = track.scrollWidth / 2;
+      if (!totalWidth) return;
+      const duration = Math.max(60, totalWidth / 80);
+      track.style.animationDuration = duration + 's';
+    });
+  }
+
+  function apply(matches) {
+    if (matches) {
+      if (tickerBar.parentNode !== sidebarBottom) {
+        sidebarBottom.appendChild(tickerBar);
+        document.body.classList.add('ticker-relocated');
+      }
+    } else {
+      if (tickerBar.parentNode !== originalParent) {
+        originalParent.insertBefore(tickerBar, originalNext);
+        document.body.classList.remove('ticker-relocated');
+      }
+    }
+    recalcTickerSpeed();
+  }
+
+  apply(mq.matches);
+  mq.addEventListener?.('change', (ev) => apply(ev.matches));
+})();
+
 // --- Date ---
 document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-US', {
   weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -120,18 +221,31 @@ function renderNewsCards(articles) {
   scrollArea.innerHTML = sorted.map((a, i) => {
     const timeAgo = getTimeAgo(a.pubDate);
     return `<div class="news-card" data-index="${i}" onclick="showNewsDetail(${JSON.stringify(a).replace(/"/g, '&quot;')})">
-      <div class="source">${escapeHtml(a.source)}</div>
+      <div class="source">${renderFavicon(a.favicon)}${escapeHtml(a.source)}</div>
       <div class="title">${escapeHtml(a.title)}</div>
       <div class="time">${timeAgo}</div>
     </div>`;
   }).join('');
 }
 
+// Render a small <img> for a feed favicon. Returns '' if none provided.
+// `onerror` hides the img so a broken icon URL never leaves a broken-image
+// placeholder next to the source name — the text alone is the fallback.
+function renderFavicon(url) {
+  if (!url) return '';
+  const safe = escapeHtml(url);
+  return `<img class="source-favicon" src="${safe}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+}
+
 function showNewsDetail(article) {
   const popup = document.getElementById('newsPopup');
   const content = document.getElementById('newsPopupContent');
   const timeAgo = getTimeAgo(article.pubDate);
-  document.querySelector('.news-chat-title').textContent = article.source || 'Article';
+  // Inject favicon + source name into the popup header. Using innerHTML
+  // here (instead of textContent) so the small <img> can sit alongside
+  // the title text; escapeHtml() guards the source string.
+  const titleEl = document.querySelector('.news-chat-title');
+  titleEl.innerHTML = `${renderFavicon(article.favicon)}${escapeHtml(article.source || 'Article')}`;
   content.innerHTML = `
     <div class="popup-title">${escapeHtml(article.title)}</div>
     <div class="popup-time">${timeAgo}</div>
@@ -684,8 +798,10 @@ async function loadSchedule() {
 // Returns the clickable flag, the inline onclick attribute, and the
 // colored ▶ icon markup. State by start time:
 //   • not started yet   -> accent  (upcoming)
-//   • started <= 4h ago  -> green   (likely live)
-//   • started > 4h ago   -> red     (likely over / stale link)
+//   • started <= 5h ago  -> green   (likely live)
+//   • started > 5h ago   -> red     (likely over / stale link)
+// Events past 5h are filtered out entirely by filterFreshEvents() before
+// they reach the renderer, so the stale state is just a safety net.
 function buildEventWatch(item) {
   const rawLink = (item && item.link ? String(item.link) : '').trim();
   const isClickable = !!rawLink;
@@ -696,10 +812,10 @@ function buildEventWatch(item) {
   const startMs = item && item.sortTime ? new Date(item.sortTime).getTime() : NaN;
   if (Number.isFinite(startMs)) {
     const ageMs = Date.now() - startMs;
-    const FOUR_HOURS = 4 * 60 * 60 * 1000;
-    if (ageMs >= FOUR_HOURS) {
+    const FIVE_HOURS = 5 * 60 * 60 * 1000;
+    if (ageMs >= FIVE_HOURS) {
       watchStateClass = 'event-watch--stale';
-      watchTitle = 'Started over 4h ago';
+      watchTitle = 'Started over 5h ago';
     } else if (ageMs >= 0) {
       watchStateClass = 'event-watch--live';
       watchTitle = 'In progress';
@@ -717,12 +833,11 @@ function buildEventWatch(item) {
 
 function renderTicker(items) {
   const track = document.getElementById('tickerTrack');
-  if (!items || !items.length) {
+  const sorted = sortEvents(items);
+  if (!sorted.length) {
     track.innerHTML = '<span class="ticker-loading">No events scheduled</span>';
     return;
   }
-
-  const sorted = sortEvents(items);
   const itemsHtml = sorted.map(item => {
     const { isClickable, clickAttr, watchHint } = buildEventWatch(item);
     const cls = isClickable ? 'ticker-item ticker-item-clickable' : 'ticker-item';
@@ -838,13 +953,29 @@ document.getElementById('refreshAll').addEventListener('click', async () => {
     });
   });
 
-  // Restore saved widths
-  ['newsSidebar', 'weatherSidebar'].forEach(id => {
-    const saved = localStorage.getItem('mnv-' + id + '-width');
-    if (saved) {
-      document.getElementById(id).style.width = saved;
-    }
-  });
+  // Restore saved widths — but only on desktop. On mobile the dashboard
+  // stacks vertically and sidebars need to be 100% wide; restoring a
+  // saved desktop width (e.g. 280px) here would leak through as an
+  // inline style and make the two sidebars render at different widths.
+  const isMobile = () => window.matchMedia('(max-width: 900px)').matches;
+  function applySavedWidths() {
+    ['newsSidebar', 'weatherSidebar'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (isMobile()) {
+        // Clear any previously-applied inline width so CSS takes over.
+        el.style.width = '';
+        return;
+      }
+      const saved = localStorage.getItem('mnv-' + id + '-width');
+      if (saved) el.style.width = saved;
+    });
+  }
+  applySavedWidths();
+  // Re-apply on viewport changes (rotation, browser resize) so we don't
+  // strand an inline desktop width when the user shrinks past 900px or
+  // grows back past it.
+  window.matchMedia('(max-width: 900px)').addEventListener?.('change', applySavedWidths);
 })();
 
 // --- Auto Refresh ---
@@ -879,14 +1010,11 @@ function setAutoRefresh(enabled) {
       autoRefreshSecondsLeft--;
       if (autoRefreshSecondsLeft <= 0) {
         autoRefreshSecondsLeft = AUTO_REFRESH_SECS;
-        // Trigger the refresh
-        (async () => {
-          console.log('[AutoRefresh] Refreshing news feeds...');
-          allNewsData = {};
-          const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
-          const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
-          await loadNewsCategory(activeCategory, true);
-        })();
+        // Reload the page so the whole client browser refreshes, not just
+        // the news feeds. The auto-refresh-enabled flag is persisted in
+        // localStorage so it re-arms automatically after the reload.
+        console.log('[AutoRefresh] Reloading page...');
+        location.reload();
       }
       status.textContent = formatCountdown(autoRefreshSecondsLeft);
     }, 1000);
@@ -1056,23 +1184,17 @@ function setFullAutoRefresh(enabled) {
       fullAutoRefreshSecondsLeft--;
       if (fullAutoRefreshSecondsLeft <= 0) {
         fullAutoRefreshSecondsLeft = FULL_AUTO_REFRESH_SECS;
-        // Trigger full refresh
+        // Force a server-side cache refresh, then reload the page so the
+        // whole client browser refreshes too. The full-auto-refresh-enabled
+        // flag is persisted in localStorage so it re-arms after reload.
         (async () => {
-          console.log('[FullAutoRefresh] Refreshing all data...');
+          console.log('[FullAutoRefresh] Refreshing all data and reloading page...');
           try {
             await fetch('/api/refresh', { method: 'POST' });
-            allNewsData = {};
-            weatherData = null;
-            const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
-            const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
-            await Promise.all([
-              loadNewsCategory(activeCategory, true),
-              loadWeather(),
-              loadSchedule()
-            ]);
           } catch (e) {
-            console.error('[FullAutoRefresh] Failed:', e);
+            console.error('[FullAutoRefresh] /api/refresh failed:', e);
           }
+          location.reload();
         })();
       }
       status.textContent = formatFullCountdown(fullAutoRefreshSecondsLeft);
@@ -1490,8 +1612,20 @@ function sportSortKey(sport) {
   return '9-other';
 }
 
+// Drop events that started more than 5 hours ago. Events without a parseable
+// sortTime are kept (we'd rather show an undated item than silently hide it).
+function filterFreshEvents(items) {
+  const FIVE_HOURS = 5 * 60 * 60 * 1000;
+  const cutoff = Date.now() - FIVE_HOURS;
+  return (items || []).filter(item => {
+    const t = item && item.sortTime ? new Date(item.sortTime).getTime() : NaN;
+    if (!Number.isFinite(t)) return true;
+    return t >= cutoff;
+  });
+}
+
 function sortEvents(items) {
-  const sorted = [...items];
+  const sorted = filterFreshEvents(items);
   if (eventSortMode === 'time') {
     sorted.sort((a, b) => (a.sortTime || '').localeCompare(b.sortTime || ''));
   } else {
@@ -1520,11 +1654,11 @@ const sportClassFn = getSportClass;
 
 function renderEventsSidebar(items) {
   const scrollArea = document.getElementById('newsScrollArea');
-  if (!items || !items.length) {
+  const sorted = sortEvents(items);
+  if (!sorted.length) {
     scrollArea.innerHTML = '<div class="loading-spinner">No events scheduled</div>';
     return;
   }
-  const sorted = sortEvents(items);
   scrollArea.innerHTML = sorted.map(item => {
     const { isClickable, clickAttr, watchHint } = buildEventWatch(item);
     const cls = isClickable ? 'event-card event-card-clickable' : 'event-card';
@@ -1595,7 +1729,7 @@ function renderNewsTicker(articles) {
     const clickAttr = hasLink ? `onclick="showNewsDetail(${payload})"` : '';
     return `
       <div class="${cls}" ${clickAttr}>
-        <span class="news-source-badge">${escapeHtml(a.source)}</span>
+        <span class="news-source-badge">${renderFavicon(a.favicon)}${escapeHtml(a.source)}</span>
         <span class="news-headline">${escapeHtml(a.title)}</span>
         <span class="news-time">${timeAgo}</span>
       </div>

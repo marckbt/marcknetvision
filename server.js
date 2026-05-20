@@ -37,6 +37,35 @@ async function fetchAndParseFeed(url) {
   return parser.parseURL(url);
 }
 
+// --- Favicon resolution ----------------------------------------------------
+// Each article we return gets a `favicon` URL so the client can render an
+// icon next to the source name. Resolution order:
+//   1. The parsed feed's own image/icon (RSS <image><url>, Atom <icon>,
+//      Atom <logo>) — most legit news feeds populate one of these.
+//   2. Google's S2 favicon service, keyed off the feed URL's host. Works
+//      for any public site without us needing to scrape /favicon.ico.
+// Reddit subreddit feeds expose no per-sub icon and all share reddit.com
+// as their host, so they all get the same reddit favicon — that's the
+// expected behavior; the source label ("r/foo") still differentiates them.
+function resolveFavicon(feedUrl, parsedFeed) {
+  // Prefer feed-declared image. rss-parser surfaces RSS <image><url> as
+  // feed.image.url and Atom <icon>/<logo> as feed.icon / feed.image.
+  const declared =
+    parsedFeed?.image?.url ||
+    parsedFeed?.image?.link ||
+    parsedFeed?.icon ||
+    '';
+  if (declared && /^https?:\/\//i.test(declared)) return declared;
+
+  // Fallback: Google S2 by host. 32px renders crisply at the 14-16px
+  // sizes the UI uses without looking pixelated on retina.
+  try {
+    const host = new URL(feedUrl).hostname;
+    if (host) return `https://www.google.com/s2/favicons?domain=${host}&sz=32`;
+  } catch (_) { /* unparseable URL — give up silently */ }
+  return '';
+}
+
 // --- RSS freshness window --------------------------------------------------
 // Drop any story whose publish date is older than the category's window,
 // both when we ingest items from a feed and when we serve from the
@@ -240,6 +269,8 @@ app.get('/api/news/:category', async (req, res) => {
   const feedPromises = feeds.map(async (feed) => {
     try {
       const result = await fetchAndParseFeed(feed.url);
+      // Resolve favicon once per feed (cheap, but no reason to do it per item).
+      const favicon = resolveFavicon(feed.url, result);
       result.items.slice(0, perFeed).forEach(item => {
         const pubDate = item.pubDate || item.isoDate || '';
         // Skip anything older than the category's freshness window so it
@@ -250,6 +281,7 @@ app.get('/api/news/:category', async (req, res) => {
         }
         articles.push({
           source: feed.name,
+          favicon,
           title: item.title || 'Untitled',
           link: item.link || '#',
           pubDate,

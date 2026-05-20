@@ -9,6 +9,14 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+  <!-- Mobile-only hamburger that toggles #topControls. Hidden via CSS on
+       wider viewports; the controls render inline there. -->
+  <button id="mobileMenuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="topControls">
+    <span class="hamburger-bars" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </span>
+  </button>
+
   <!-- Top Controls -->
   <div id="topControls">
     <div class="location-wrapper">

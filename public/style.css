@@ -59,6 +59,11 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-primary);
   transition: background var(--transition-speed), color var(--transition-speed);
+  /* Suppress the grey flash iOS Safari paints on tapped elements; we have
+     our own :hover/:active styles. */
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  /* Prevent iOS auto-zoom on form-input focus from breaking the layout. */
+  -webkit-text-size-adjust: 100%;
 }
 
 /* ===== TOP CONTROLS ===== */
@@ -70,6 +75,53 @@ html, body {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* Mobile hamburger toggle. Hidden on desktop; the @media block below
+   reveals it and collapses #topControls into a dropdown panel. */
+#mobileMenuToggle {
+  display: none;
+  position: fixed;
+  top: 8px;
+  right: 10px;
+  z-index: 1100;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--card-shadow);
+}
+#mobileMenuToggle:active { background: var(--bg-card-hover); }
+.hamburger-bars {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 18px;
+  height: 13px;
+}
+.hamburger-bars span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: currentColor;
+  border-radius: 2px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+/* X-out animation when the menu is open. */
+body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(1) {
+  transform: translateY(5.5px) rotate(45deg);
+}
+body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(2) {
+  opacity: 0;
+}
+body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
+  transform: translateY(-5.5px) rotate(-45deg);
 }
 .location-wrapper {
   position: relative;
@@ -433,6 +485,8 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  /* Momentum scrolling on iOS (harmless on other platforms). */
+  -webkit-overflow-scrolling: touch;
 }
 .sidebar-scroll::-webkit-scrollbar { width: 6px; }
 .sidebar-scroll::-webkit-scrollbar-track { background: var(--scrollbar-track); }
@@ -495,6 +549,36 @@ html, body {
   color: var(--accent);
   letter-spacing: 0.5px;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Feed favicon shared style — used inside .news-card .source, the ticker
+   news source badge, and the article popup header. Square, small, fades
+   in on load; hidden on error via JS so a broken icon never leaves a
+   broken-image glyph next to the source name. */
+.source-favicon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  object-fit: contain;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ticker-news-item .news-source-badge .source-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.news-chat-title .source-favicon {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 .news-card .title {
   font-size: 12.5px;
@@ -657,6 +741,7 @@ html, body {
   background: var(--bg-secondary);
   border-left: 1px solid var(--border-color);
   border-top: 1px solid var(--border-color);
+  -webkit-overflow-scrolling: touch;
 }
 .main-content-inner::-webkit-scrollbar { width: 8px; }
 .main-content-inner::-webkit-scrollbar-track { background: transparent; }
@@ -1417,9 +1502,212 @@ html, body {
 @media (max-width: 1200px) {
   :root { --sidebar-width: 240px; }
 }
+
+/* Tablet + small-laptop: keep both sidebars but tighten them. */
+@media (max-width: 1024px) {
+  :root { --sidebar-width: 220px; }
+  .sidebar { min-width: 160px; }
+}
+
+/* Tablet portrait + phones: stack everything in a single column so news,
+   weather, and live-video remain accessible (previously they were hidden
+   wholesale under 900px). The dashboard becomes vertically scrollable;
+   each sidebar caps its height so the main panel stays reachable. */
 @media (max-width: 900px) {
   #dashboard {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100vh - var(--ticker-height));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .sidebar { display: none; }
+  .sidebar {
+    /* !important defeats inline widths the desktop resize handle may have
+       saved to localStorage and reapplied on load. Without these, news
+       and weather can render at different widths on mobile. */
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    max-height: 50vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+  }
+  /* The split sidebar (weather + live video) needs a little more room. */
+  .sidebar-split { max-height: 60vh; }
+  .sidebar-split .sidebar-bottom { max-height: 40%; }
+
+  #mainContent {
+    width: 100%;
+    min-width: 0;
+    min-height: 70vh;
+    flex-shrink: 0;
+  }
+  .main-content-inner {
+    border-radius: 12px 12px 0 0;
+  }
+
+  /* Resize handles are useless once sidebars are stacked, and the 6px
+     col-resize strip is a hostile touch target. Hide them on mobile. */
+  .sidebar-resize-handle { display: none; }
+
+  /* Top controls: collapse into a hamburger-driven drawer. The drawer
+     anchors below the hamburger and slides open when body.menu-open. */
+  #mobileMenuToggle { display: inline-flex; }
+  #topControls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    top: 56px;
+    right: 10px;
+    padding: 12px;
+    width: 240px;
+    max-width: calc(100vw - 20px);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    /* Hidden by default; reveal when body.menu-open. */
+    display: none;
+  }
+  body.menu-open #topControls { display: flex; }
+  #topControls button {
+    width: 100%;
+    justify-content: center;
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+  /* Location chip becomes a full-width button-like control. */
+  #topControls .location-wrapper { width: 100%; }
+  #topControls .browser-location {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    text-align: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+  }
+  /* The location dropdown should drop below the location chip inside
+     the drawer, not float at the top of the viewport. */
+  #topControls .location-dropdown {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    margin-top: 6px;
+    box-sizing: border-box;
+  }
+
+  /* Ticker: the big logo and full conditions panel eat the entire bar
+     on a 600-800px screen. Shrink them so the scrolling track survives. */
+  .ticker-logo {
+    width: 130px;
+    padding: 0 8px;
+  }
+  .ticker-logo svg { width: 110px; }
+  .ticker-conditions {
+    width: auto;
+    min-width: 100px;
+    padding: 4px 8px;
+  }
+  .ticker-item { padding: 0 18px; font-size: 13px; }
+  .ticker-item .sport-badge { font-size: 11px; padding: 3px 9px; margin-right: 10px; }
+
+  /* News chat popup needs to actually fit on a narrow viewport. */
+  .news-chat-popup {
+    width: calc(100vw - 24px);
+    max-width: 360px;
+    left: 12px;
+  }
+}
+
+/* Phone-specific: tighter type, hide non-essentials. */
+@media (max-width: 600px) {
+  :root { --ticker-height: 60px; }
+
+  .sidebar { max-height: 45vh; }
+  .sidebar-split { max-height: 55vh; }
+
+  .sidebar-header { padding: 10px 12px 8px; }
+  .sidebar-header h3 { font-size: 13px; letter-spacing: 1px; }
+  .tab-btn { padding: 5px 10px; font-size: 11px; }
+  .sort-btn { padding: 5px 10px; font-size: 11px; }
+
+  /* The "Swap" / "Auto-Scroll" controls don't fit alongside the title on
+     phones; let them break to their own row instead of overlapping. */
+  .sidebar-header-row { flex-wrap: wrap; gap: 6px; }
+  .sidebar-header-actions { width: 100%; justify-content: flex-start; }
+
+  /* Top controls: keep buttons reachable without spilling across the
+     whole screen. Allow them to flow to a 2nd row. */
+  #topControls {
+    top: 6px;
+    right: 8px;
+    max-width: calc(100vw - 16px);
+  }
+  #topControls button { font-size: 10px; padding: 4px 7px; }
+
+  .content-panel { padding: 16px 14px; }
+
+  /* Ticker: drop the logo entirely — every pixel matters on a 375px
+     viewport, and the conditions block already carries the brand cue. */
+  .ticker-logo { display: none; }
+  .ticker-conditions {
+    min-width: 88px;
+    padding: 3px 6px;
+    gap: 0;
+  }
+  .conditions-time { font-size: 13px; letter-spacing: 0.5px; }
+  .conditions-temp { font-size: 15px; }
+  .conditions-icon, .conditions-icon .wx-icon-img { width: 22px; height: 22px; }
+  /* DOW takes a full row inside the narrow conditions block; just hide it. */
+  .conditions-dow { display: none; }
+
+  .ticker-item { padding: 0 14px; font-size: 12px; height: 44px; }
+  .ticker-item .sport-badge { font-size: 10px; padding: 2px 8px; margin-right: 8px; }
+  .ticker-item .matchup { font-size: 12px; }
+  .ticker-item .network, .ticker-item .time { font-size: 11px; }
+
+  /* In-panel iframes were sized off the full viewport-minus-160; that
+     math breaks once they're inside a stacked container. Constrain them
+     to the panel instead. */
+  #weatherscanFrame { height: 70vh !important; min-height: 320px; }
+}
+
+/* ===== MOBILE: TICKER REPLACES LIVE VIDEO =====
+   On mobile (<=900px) JS moves #tickerBar into #weatherSidebar's
+   .sidebar-bottom (formerly the LIVE VIDEO section). The original
+   live-video header and card grid hide; the dashboard reclaims the
+   bottom strip the ticker used to occupy at the viewport bottom. */
+body.ticker-relocated #liveVideoArea,
+body.ticker-relocated #weatherSidebar .sidebar-bottom > .sidebar-header {
+  display: none;
+}
+body.ticker-relocated #dashboard {
+  /* No more reserved space at the bottom for the ticker bar. */
+  min-height: 100vh;
+  height: auto;
+}
+body.ticker-relocated #weatherSidebar .sidebar-bottom {
+  /* Hand the whole bottom slot to the ticker. */
+  max-height: none;
+  padding: 0;
+  border-top: 1px solid var(--border-color);
+}
+body.ticker-relocated #weatherSidebar .sidebar-bottom #tickerBar {
+  width: 100%;
+  height: var(--ticker-height);
+  border-top: none;
+}
+
+/* The ticker's logo column eats too much of a narrow sidebar; hide it
+   in the relocated state regardless of the 600px phone breakpoint, so
+   even 700-900px tablets get a usable scroll track. */
+body.ticker-relocated #tickerBar .ticker-logo {
+  display: none;
+}
+body.ticker-relocated #tickerBar .ticker-conditions {
+  width: auto;
+  min-width: 100px;
+  padding: 4px 10px;
 }
