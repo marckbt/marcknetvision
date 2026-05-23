@@ -220,10 +220,20 @@ function renderNewsCards(articles) {
 
   scrollArea.innerHTML = sorted.map((a, i) => {
     const timeAgo = getTimeAgo(a.pubDate);
-    return `<div class="news-card" data-index="${i}" onclick="showNewsDetail(${JSON.stringify(a).replace(/"/g, '&quot;')})">
-      <div class="source">${renderFavicon(a.favicon)}${escapeHtml(a.source)}</div>
-      <div class="title">${escapeHtml(a.title)}</div>
-      <div class="time">${timeAgo}</div>
+    // Thumbnail is only rendered in the left-panel card. Ticker items
+    // and the article popup intentionally skip it. If the thumbnail
+    // 404s or fails to load, onerror collapses the whole figure so the
+    // card doesn't render an empty gap.
+    const thumb = a.thumbnail
+      ? `<figure class="news-thumb"><img src="${escapeHtml(a.thumbnail)}" alt="" loading="lazy" onerror="this.parentNode.style.display='none'"></figure>`
+      : '';
+    return `<div class="news-card ${a.thumbnail ? 'has-thumb' : ''}" data-index="${i}" onclick="showNewsDetail(${JSON.stringify(a).replace(/"/g, '&quot;')})">
+      ${thumb}
+      <div class="news-card-body">
+        <div class="source">${renderFavicon(a.favicon)}${escapeHtml(a.source)}</div>
+        <div class="title">${escapeHtml(a.title)}</div>
+        <div class="time">${timeAgo}</div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -235,6 +245,29 @@ function renderFavicon(url) {
   if (!url) return '';
   const safe = escapeHtml(url);
   return `<img class="source-favicon" src="${safe}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+}
+
+// Render a small <img> for an ESPN team or league logo. Same broken-icon
+// guard as renderFavicon. `klass` lets callers pick the size variant
+// ('team-logo', 'league-logo', 'team-logo-sm' for the ticker).
+function renderLogo(url, klass) {
+  if (!url) return '';
+  const safe = escapeHtml(url);
+  return `<img class="${klass}" src="${safe}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+}
+
+// Render the "Away vs Home" matchup with team logos when available.
+// Falls back to the plain matchup string for events that have no team
+// data (golf, SC2, etc.) or where logos weren't resolved.
+function renderMatchup(item, logoClass) {
+  if (item && item.awayName && item.homeName) {
+    return `
+      <span class="team-row">${renderLogo(item.awayLogo, logoClass)}<span>${escapeHtml(item.awayName)}</span></span>
+      <span class="vs-sep">vs</span>
+      <span class="team-row">${renderLogo(item.homeLogo, logoClass)}<span>${escapeHtml(item.homeName)}</span></span>
+    `;
+  }
+  return escapeHtml(item?.matchup || '');
 }
 
 function showNewsDetail(article) {
@@ -341,9 +374,21 @@ async function loadWeather() {
     if (activeLoc === 'pivotal') {
       renderPivotalSidebar();
     } else {
-      renderWeatherSidebar(activeLoc);
+      // If weather-swap is on, the sidebar is showing events instead —
+      // skip rendering forecast cards into it and just refresh the
+      // ticker (which is currently showing the forecast).
+      if (isWeatherSwapped) {
+        const areaEl = document.getElementById('weatherScrollArea');
+        renderEventsIntoArea(cachedScheduleData, areaEl);
+        renderWeatherInTicker(activeLoc);
+      } else {
+        renderWeatherSidebar(activeLoc);
+      }
     }
     setupWeatherTabs();
+    // Refresh the bottom-left logo/alert badge in case any locations
+    // now have (or no longer have) active alerts.
+    updateLogoAlert();
   } catch (e) {
     scrollArea.innerHTML =
       '<div class="loading-spinner">Weather data unavailable</div>';
@@ -357,7 +402,16 @@ function setupWeatherTabs() {
       tabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
       const loc = e.target.dataset.location;
-      if (loc === 'pivotal') {
+      // When weather-swap is active, the sidebar is showing the events
+      // list — we mustn't clobber it by re-rendering forecast cards.
+      // Just route the new location's forecast into the ticker and keep
+      // the ticker's location-selector mirror in sync.
+      if (isWeatherSwapped) {
+        if (loc !== 'pivotal' && loc !== 'browserLocation') {
+          renderWeatherInTicker(loc);
+        }
+        syncTickerLocations();
+      } else if (loc === 'pivotal') {
         renderPivotalSidebar();
       } else if (loc === 'browserLocation') {
         renderBrowserLocationWeather();
@@ -461,7 +515,8 @@ function renderWeatherSidebar(locationKey) {
   }
 
   const loc = weatherData[locationKey];
-  scrollArea.innerHTML = loc.daily.map((day, i) =>
+  const alertsHtml = renderAlertsBanner(loc.alerts, locationKey);
+  const daysHtml = loc.daily.map((day, i) =>
     `<div class="weather-day-card" onclick='showWeatherDetail("${locationKey}", ${i})'>
       <div class="wx-icon">${getWxIcon(day.condition)}</div>
       <div class="wx-info">
@@ -474,6 +529,169 @@ function renderWeatherSidebar(locationKey) {
       </div>
     </div>`
   ).join('');
+  scrollArea.innerHTML = alertsHtml + daysHtml;
+}
+
+// ===== NWS Weather Alerts =====
+// Active alerts (watches / warnings / advisories) are attached to each
+// location's payload by the server. Render them as clickable banners
+// at the top of the weather view; clicking opens a bottom-right popup
+// with full headline / area / description / instruction details.
+
+// Map an alert's severity + bucket to a CSS modifier class so we can
+// color-code (warnings red, watches orange, advisories yellow).
+function alertCssClass(alert) {
+  if (!alert) return '';
+  const sev = (alert.severity || '').toLowerCase();
+  if (sev === 'extreme') return 'wx-alert--extreme';
+  if (alert.bucket === 'warning') return 'wx-alert--warning';
+  if (alert.bucket === 'watch')   return 'wx-alert--watch';
+  if (alert.bucket === 'advisory')return 'wx-alert--advisory';
+  return 'wx-alert--statement';
+}
+
+// Build the alerts banner block. Returns '' when there are no alerts.
+// We cache the alert objects on a window-level map keyed by id so the
+// inline onclick handler can look them up without serializing JSON
+// into the DOM (descriptions can be many KB).
+const _wxAlertCache = new Map();
+function renderAlertsBanner(alerts, locationKey) {
+  if (!Array.isArray(alerts) || alerts.length === 0) return '';
+  const items = alerts.map((a, i) => {
+    const id = a.id || `${locationKey}|${i}`;
+    _wxAlertCache.set(id, a);
+    const safeId = id.replace(/'/g, "\\'");
+    return `
+      <div class="wx-alert ${alertCssClass(a)}" onclick="showWeatherAlertPopup('${escapeHtml(safeId)}')">
+        <span class="wx-alert-icon" aria-hidden="true">&#9888;</span>
+        <div class="wx-alert-body">
+          <div class="wx-alert-event">${escapeHtml(a.event)}</div>
+          <div class="wx-alert-area">${escapeHtml(a.areaDesc || '')}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  return `<div class="wx-alerts-banner">${items}</div>`;
+}
+
+function showWeatherAlertPopup(alertId) {
+  const alert = _wxAlertCache.get(alertId);
+  if (!alert) return;
+  const popup = document.getElementById('weatherAlertPopup');
+  const titleEl = document.getElementById('weatherAlertTitle');
+  const content = document.getElementById('weatherAlertContent');
+
+  titleEl.innerHTML = `<span class="wx-alert-pop-pill ${alertCssClass(alert)}">${escapeHtml(alert.event)}</span>`;
+
+  // Render the alert detail. Description and instruction often have
+  // their own line breaks — convert newlines to <br> so they read.
+  const desc = escapeHtml(alert.description || '').replace(/\n/g, '<br>');
+  const inst = escapeHtml(alert.instruction || '').replace(/\n/g, '<br>');
+  const effective = alert.effective ? new Date(alert.effective).toLocaleString() : '';
+  const expires   = alert.expires   ? new Date(alert.expires).toLocaleString()   : '';
+
+  content.innerHTML = `
+    <div class="wx-alert-pop-headline">${escapeHtml(alert.headline || alert.event)}</div>
+    ${alert.areaDesc ? `<div class="wx-alert-pop-area"><strong>Area:</strong> ${escapeHtml(alert.areaDesc)}</div>` : ''}
+    <div class="wx-alert-pop-meta">
+      ${effective ? `<span><strong>Effective:</strong> ${escapeHtml(effective)}</span>` : ''}
+      ${expires   ? `<span><strong>Expires:</strong> ${escapeHtml(expires)}</span>`     : ''}
+      <span><strong>Severity:</strong> ${escapeHtml(alert.severity)}</span>
+      <span><strong>Urgency:</strong> ${escapeHtml(alert.urgency)}</span>
+    </div>
+    ${desc ? `<div class="wx-alert-pop-section"><strong>Details</strong><div>${desc}</div></div>` : ''}
+    ${inst ? `<div class="wx-alert-pop-section wx-alert-pop-instruction"><strong>What to do</strong><div>${inst}</div></div>` : ''}
+    <div class="wx-alert-pop-source">Source: ${escapeHtml(alert.sender || 'NWS')}</div>
+  `;
+  popup.classList.add('visible');
+}
+
+function closeWeatherAlertPopup() {
+  document.getElementById('weatherAlertPopup').classList.remove('visible');
+}
+
+// When any active alert exists across all loaded locations, replace
+// the bottom-left MNV logo with a clickable alert badge. The badge
+// shows the highest-severity event + the affected location and opens
+// the bottom-right weather-alert popup on click. Cleared (logo
+// restored) when no alerts are active.
+function updateLogoAlert() {
+  const logoArea = document.getElementById('logoArea');
+  const mnvLogo  = document.getElementById('mnvLogo');
+  if (!logoArea || !mnvLogo) return;
+
+  // Aggregate every active alert across the static locations and the
+  // browser-location data, tagging each with its source location name
+  // so the badge can show "Tornado Watch — Chantilly, VA".
+  const all = [];
+  if (weatherData && typeof weatherData === 'object') {
+    Object.values(weatherData).forEach(loc => {
+      if (Array.isArray(loc?.alerts)) {
+        loc.alerts.forEach(a => all.push({ ...a, _locName: loc.name || '' }));
+      }
+    });
+  }
+  if (browserLocationWeather?.alerts) {
+    browserLocationWeather.alerts.forEach(a => all.push({
+      ...a,
+      _locName: browserLocationWeather.name || 'Browser Location',
+    }));
+  }
+
+  // Dedupe by id; rank by severity (server already sorted within each
+  // location, but inter-location order isn't guaranteed).
+  const SEV = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 };
+  const seen = new Set();
+  const unique = [];
+  for (const a of all) {
+    const key = a.id || `${a.event}|${a._locName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(a);
+  }
+  unique.sort((a, b) => (SEV[a.severity] ?? 9) - (SEV[b.severity] ?? 9));
+
+  let badge = document.getElementById('tickerLogoAlertBadge');
+
+  if (unique.length === 0) {
+    // All clear — restore the MNV logo, hide the badge.
+    if (badge) badge.style.display = 'none';
+    mnvLogo.style.display = '';
+    return;
+  }
+
+  // Make sure the popup can look up the chosen alert by id even if no
+  // sidebar banner has been rendered yet (e.g. weather-swap is on so
+  // the sidebar shows events instead).
+  const top = unique[0];
+  if (top.id) _wxAlertCache.set(top.id, top);
+
+  // Build the badge lazily; reuse on subsequent updates.
+  if (!badge) {
+    badge = document.createElement('button');
+    badge.id = 'tickerLogoAlertBadge';
+    badge.type = 'button';
+    badge.className = 'ticker-logo-alert';
+    // Insert before the MNV svg so it occupies the same spot.
+    logoArea.insertBefore(badge, mnvLogo);
+  }
+
+  // If multiple alerts, surface the count so users know to click for
+  // the full list (via the sidebar banners; popup shows one at a time).
+  const extra = unique.length > 1 ? `<span class="ticker-logo-alert-count">+${unique.length - 1}</span>` : '';
+  badge.className = `ticker-logo-alert ${alertCssClass(top)}`;
+  badge.innerHTML = `
+    <span class="ticker-logo-alert-icon" aria-hidden="true">&#9888;</span>
+    <span class="ticker-logo-alert-body">
+      <span class="ticker-logo-alert-event">${escapeHtml(top.event)}</span>
+      <span class="ticker-logo-alert-loc">${escapeHtml(top._locName || '')}</span>
+    </span>
+    ${extra}
+  `;
+  badge.title = `${top.event} — ${top._locName || ''}\nClick for details`;
+  badge.onclick = () => { if (top.id) showWeatherAlertPopup(top.id); };
+  badge.style.display = '';
+  mnvLogo.style.display = 'none';
 }
 
 function showWeatherscanVideo() {
@@ -623,6 +841,7 @@ function showWeatherDetail(locationKey, dayIndex) {
   content.innerHTML = `
     <h2><span class="wx-detail-icon">${getWxIcon(day.condition)}</span> ${day.dayName} - ${loc.name}</h2>
     <p class="wx-detail-subtitle">${day.date}</p>
+    ${renderAlertsBanner(loc.alerts, locationKey)}
     <div class="wx-detail-split">
       <div class="wx-detail-data">
         <div class="wx-detail-grid">
@@ -843,8 +1062,8 @@ function renderTicker(items) {
     const cls = isClickable ? 'ticker-item ticker-item-clickable' : 'ticker-item';
     return `
     <div class="${cls}" ${clickAttr}>
-      <span class="sport-badge ${getSportClass(item.sport)}">${escapeHtml(item.sport)}</span>
-      <span class="matchup">${escapeHtml(item.matchup)}</span>
+      <span class="sport-badge ${getSportClass(item.sport)}">${renderLogo(item.leagueLogo, 'league-logo')}${escapeHtml(item.sport)}</span>
+      <span class="matchup">${renderMatchup(item, 'team-logo-sm')}</span>
       <span class="network">${escapeHtml(item.network || '')}</span>
       <span class="time">${escapeHtml(item.time || '')}</span>
       ${watchHint}
@@ -1010,11 +1229,17 @@ function setAutoRefresh(enabled) {
       autoRefreshSecondsLeft--;
       if (autoRefreshSecondsLeft <= 0) {
         autoRefreshSecondsLeft = AUTO_REFRESH_SECS;
-        // Reload the page so the whole client browser refreshes, not just
-        // the news feeds. The auto-refresh-enabled flag is persisted in
-        // localStorage so it re-arms automatically after the reload.
-        console.log('[AutoRefresh] Reloading page...');
-        location.reload();
+        // Refresh only the news feeds in place — no page reload. The
+        // Full Auto-Refresh (1h) still does a full browser reload; this
+        // one is intentionally lighter so the user's scroll position,
+        // open panels, and selected tab survive the refresh.
+        (async () => {
+          console.log('[AutoRefresh] Refreshing news feeds...');
+          allNewsData = {};
+          const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
+          const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
+          await loadNewsCategory(activeCategory, true);
+        })();
       }
       status.textContent = formatCountdown(autoRefreshSecondsLeft);
     }, 1000);
@@ -1392,6 +1617,9 @@ async function fetchBrowserLocationWeather() {
     if (activeTab && activeTab.dataset.location === 'browserLocation') {
       renderBrowserLocationWeather();
     }
+    // Refresh the bottom-left badge in case browser-location alerts
+    // changed (added, removed, or upgraded in severity).
+    updateLogoAlert();
   } catch (e) {
     console.error('[BrowserWX] Failed to fetch:', e);
   }
@@ -1403,7 +1631,8 @@ function renderBrowserLocationWeather() {
     scrollArea.innerHTML = '<div class="loading-spinner">No weather data for this location</div>';
     return;
   }
-  scrollArea.innerHTML = browserLocationWeather.daily.map((day, i) =>
+  const alertsHtml = renderAlertsBanner(browserLocationWeather.alerts, 'browserLocation');
+  scrollArea.innerHTML = alertsHtml + browserLocationWeather.daily.map((day, i) =>
     `<div class="weather-day-card" onclick='showBrowserLocationDetail(${i})'>
       <div class="wx-icon">${getWxIcon(day.condition)}</div>
       <div class="wx-info">
@@ -1433,6 +1662,7 @@ function showBrowserLocationDetail(dayIndex) {
   content.innerHTML = `
     <h2><span class="wx-detail-icon">${getWxIcon(day.condition)}</span> ${day.dayName} - ${locName}</h2>
     <p class="wx-detail-subtitle">${day.date}</p>
+    ${renderAlertsBanner(browserLocationWeather.alerts, 'browserLocation')}
     <div class="wx-detail-split">
       <div class="wx-detail-data">
         <div class="wx-detail-grid">
@@ -1665,10 +1895,10 @@ function renderEventsSidebar(items) {
     return `
     <div class="${cls}" ${clickAttr}>
       <div class="event-header">
-        <span class="event-sport sport-badge ${sportClassFn(item.sport)}">${escapeHtml(item.sport)}</span>
+        <span class="event-sport sport-badge ${sportClassFn(item.sport)}">${renderLogo(item.leagueLogo, 'league-logo')}${escapeHtml(item.sport)}</span>
         ${watchHint}
       </div>
-      <div class="event-matchup">${escapeHtml(item.matchup)}</div>
+      <div class="event-matchup">${renderMatchup(item, 'team-logo')}</div>
       <div class="event-meta">
         <span>${escapeHtml(item.network || '')}</span>
         <span class="event-time">${escapeHtml(item.time || '')}</span>
@@ -1820,8 +2050,392 @@ document.getElementById('swapToggle').addEventListener('click', async () => {
   btn.disabled = true;
   isSwapped = !isSwapped;
   localStorage.setItem('mnv-swapped', isSwapped ? '1' : '0');
+  // News-swap and weather-swap both want to own the bottom ticker; only
+  // one can be active at a time. Force-disable the other if it's on.
+  if (isSwapped && isWeatherSwapped) {
+    isWeatherSwapped = false;
+    localStorage.setItem('mnv-weather-swapped', '0');
+    await applyWeatherSwap();
+  }
   await applySwap();
   btn.disabled = false;
+});
+
+// =====================================================================
+// Weather <-> Events swap (center/weather sidebar variant).
+// Mirrors the News<->Events swap on the left, but for the weather sidebar:
+//   isWeatherSwapped=false  ->  weather sidebar shows forecast, ticker
+//                               shows sports events (default).
+//   isWeatherSwapped=true   ->  weather sidebar shows EVENTS list, ticker
+//                               shows the active location's forecast.
+// Mutual exclusion with isSwapped (news swap) is enforced in both
+// button handlers — they both want to own the ticker.
+// =====================================================================
+let isWeatherSwapped = false;
+
+// Render the active location's daily forecast in the bottom ticker.
+// Items are clickable — each one opens the same detail panel that the
+// sidebar weather-day cards open, so the user gets identical behavior
+// regardless of where weather is currently displayed. Pulls from
+// browserLocationWeather for the Browser Location tab (a separate
+// store from weatherData[]).
+function renderWeatherInTicker(locationKey) {
+  const track = document.getElementById('tickerTrack');
+  if (!track) return;
+
+  // Resolve which forecast source to render and which detail handler to
+  // wire onclick to. Browser Location lives in its own variable.
+  let daily, onClickFor;
+  if (locationKey === 'browserLocation') {
+    if (!browserLocationWeather || !browserLocationWeather.daily?.length) {
+      track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
+      return;
+    }
+    daily = browserLocationWeather.daily;
+    onClickFor = (i) => `showBrowserLocationDetail(${i})`;
+  } else {
+    if (!weatherData || !weatherData[locationKey] || !weatherData[locationKey].daily?.length) {
+      track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
+      return;
+    }
+    daily = weatherData[locationKey].daily;
+    onClickFor = (i) => `showWeatherDetail('${locationKey}', ${i})`;
+  }
+
+  const itemsHtml = daily.map((day, i) => {
+    return `
+      <div class="ticker-item ticker-wx-item ticker-wx-item-clickable" onclick="${onClickFor(i)}">
+        <span class="ticker-wx-icon">${getWxIcon(day.condition)}</span>
+        <span class="ticker-wx-day">${escapeHtml(day.dayName)} <span class="ticker-wx-date">${escapeHtml(day.date)}</span></span>
+        <span class="ticker-wx-cond">${escapeHtml(day.condition)}</span>
+        <span class="ticker-wx-temps">
+          <span class="ticker-wx-high" style="color:${getTempColor(day.high)}">${day.high}&deg;</span>
+          /
+          <span class="ticker-wx-low" style="color:${getTempColor(day.low)}">${day.low}&deg;</span>
+        </span>
+      </div>
+    `;
+  }).join('');
+  // Duplicated for seamless scroll. Both copies carry the same onclick
+  // (clicking either resolves to the same dayIndex).
+  track.innerHTML = itemsHtml + itemsHtml;
+  requestAnimationFrame(() => {
+    const totalWidth = track.scrollWidth / 2;
+    if (!totalWidth) return;
+    const duration = Math.max(60, totalWidth / 60);
+    track.style.animationDuration = duration + 's';
+  });
+}
+
+// Build the location selector that sits above the MNV logo in the ticker
+// while weather-swap is active. Rendered as a single hamburger button
+// that opens a dropdown of the three locations; this keeps the ticker
+// chrome compact while still surfacing every option. Clicking an option
+// programmatically clicks the corresponding sidebar source tab so the
+// existing geolocation / render pipeline runs without duplication.
+function buildTickerWeatherLocations() {
+  const container = document.getElementById('tickerWeatherLocations');
+  if (!container) return;
+  const sourceTabs = Array.from(document.querySelectorAll('#weatherLocationTabs .tab-btn'));
+  const active = sourceTabs.find(t => t.classList.contains('active'));
+  const activeLabel = active ? active.textContent.trim() : 'Location';
+
+  container.innerHTML = `
+    <button class="ticker-wx-loc-toggle" aria-label="Choose weather location" aria-expanded="false" title="Choose weather location">
+      <span class="hamburger-bars" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="ticker-wx-loc-current">${escapeHtml(activeLabel)}</span>
+    </button>
+    <div class="ticker-wx-loc-menu" role="menu" hidden></div>
+  `;
+
+  const toggleBtn = container.querySelector('.ticker-wx-loc-toggle');
+  const menuEl = container.querySelector('.ticker-wx-loc-menu');
+
+  // Populate dropdown options from the source tabs.
+  sourceTabs.forEach(src => {
+    const opt = document.createElement('button');
+    opt.className = 'ticker-wx-loc-option' + (src.classList.contains('active') ? ' active' : '');
+    opt.dataset.location = src.dataset.location;
+    opt.setAttribute('role', 'menuitem');
+    opt.textContent = src.textContent;
+    opt.addEventListener('click', () => {
+      // Delegate to the source tab (handles geolocation, render branches).
+      src.click();
+      closeTickerLocMenu();
+      syncTickerLocations();
+    });
+    menuEl.appendChild(opt);
+  });
+
+  // Toggle dropdown.
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !menuEl.hidden;
+    if (isOpen) {
+      closeTickerLocMenu();
+    } else {
+      openTickerLocMenu();
+    }
+  });
+
+  // Tap-outside-to-close. Re-installs every time the menu is built
+  // (cheap; the listener no-ops when the menu is already closed).
+  document.addEventListener('click', (e) => {
+    if (menuEl.hidden) return;
+    if (container.contains(e.target)) return;
+    closeTickerLocMenu();
+  });
+}
+
+function openTickerLocMenu() {
+  const container = document.getElementById('tickerWeatherLocations');
+  if (!container) return;
+  const menuEl = container.querySelector('.ticker-wx-loc-menu');
+  const toggleBtn = container.querySelector('.ticker-wx-loc-toggle');
+  if (!menuEl || !toggleBtn) return;
+  menuEl.hidden = false;
+  toggleBtn.setAttribute('aria-expanded', 'true');
+  toggleBtn.classList.add('open');
+}
+
+function closeTickerLocMenu() {
+  const container = document.getElementById('tickerWeatherLocations');
+  if (!container) return;
+  const menuEl = container.querySelector('.ticker-wx-loc-menu');
+  const toggleBtn = container.querySelector('.ticker-wx-loc-toggle');
+  if (!menuEl || !toggleBtn) return;
+  menuEl.hidden = true;
+  toggleBtn.setAttribute('aria-expanded', 'false');
+  toggleBtn.classList.remove('open');
+}
+
+function syncTickerLocations() {
+  const container = document.getElementById('tickerWeatherLocations');
+  if (!container) return;
+  const active = document.querySelector('#weatherLocationTabs .tab-btn.active');
+  const activeLoc = active ? active.dataset.location : null;
+  const activeLabel = active ? active.textContent.trim() : 'Location';
+
+  // Update the visible label on the hamburger button.
+  const currentEl = container.querySelector('.ticker-wx-loc-current');
+  if (currentEl) currentEl.textContent = activeLabel;
+
+  // Mirror active state into the dropdown options.
+  container.querySelectorAll('.ticker-wx-loc-option').forEach(b => {
+    b.classList.toggle('active', b.dataset.location === activeLoc);
+  });
+}
+
+async function applyWeatherSwap() {
+  const btn = document.getElementById('weatherSwapToggle');
+  const titleEl = document.getElementById('weatherSidebarTitle');
+  const locationTabs = document.getElementById('weatherLocationTabs');
+  const scrollArea = document.getElementById('weatherScrollArea');
+  const track = document.getElementById('tickerTrack');
+  const tickerLocs = document.getElementById('tickerWeatherLocations');
+
+  if (isWeatherSwapped) {
+    btn.classList.add('swapped');
+    titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 4v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> EVENTS';
+    // Hide location tabs in events mode (no use for them); show event sort.
+    locationTabs.style.display = 'none';
+
+    scrollArea.innerHTML = '<div class="loading-spinner">Loading events...</div>';
+    track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
+
+    // Ensure schedule data is loaded
+    if (!cachedScheduleData.length) {
+      try {
+        const res = await fetch('/api/schedule');
+        cachedScheduleData = await res.json();
+        document.getElementById('statSports').textContent = cachedScheduleData.length;
+      } catch (e) { /* ignore */ }
+    }
+
+    // The events list is rendered into the weather sidebar's scroll area.
+    // We delegate to a small helper that reuses sortEvents() and the same
+    // event-card markup as renderEventsSidebar().
+    renderEventsIntoArea(cachedScheduleData, scrollArea);
+
+    // Put the active weather location's forecast into the ticker, and
+    // surface a location selector in the ticker-logo area so the user
+    // can switch among Chantilly / Cincinnati / Browser Location while
+    // the original sidebar tabs are hidden behind the events view.
+    const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
+    const activeLoc = activeTab ? activeTab.dataset.location : 'chantilly';
+    renderWeatherInTicker(activeLoc);
+    buildTickerWeatherLocations();
+    if (tickerLocs) tickerLocs.hidden = false;
+    document.body.classList.add('weather-swapped');
+  } else {
+    btn.classList.remove('swapped');
+    titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> WEATHER';
+    locationTabs.style.display = '';
+
+    // Tear down the ticker location selector and restore standard layout.
+    if (tickerLocs) {
+      tickerLocs.hidden = true;
+      tickerLocs.innerHTML = '';
+    }
+    document.body.classList.remove('weather-swapped');
+
+    // Restore weather in the sidebar and events in the ticker.
+    const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
+    const activeLoc = activeTab ? activeTab.dataset.location : 'chantilly';
+    renderWeatherSidebar(activeLoc);
+    renderTicker(cachedScheduleData);
+  }
+}
+
+// Render events into a given scroll-area element (factored out of
+// renderEventsSidebar so applyWeatherSwap can target a different DOM node
+// while reusing the same card markup).
+function renderEventsIntoArea(items, areaEl) {
+  if (!areaEl) return;
+  const sorted = sortEvents(items);
+  if (!sorted.length) {
+    areaEl.innerHTML = '<div class="loading-spinner">No events scheduled</div>';
+    return;
+  }
+  areaEl.innerHTML = sorted.map(item => {
+    const { isClickable, clickAttr, watchHint } = buildEventWatch(item);
+    const cls = isClickable ? 'event-card event-card-clickable' : 'event-card';
+    return `
+    <div class="${cls}" ${clickAttr}>
+      <div class="event-header">
+        <span class="event-sport sport-badge ${getSportClass(item.sport)}">${renderLogo(item.leagueLogo, 'league-logo')}${escapeHtml(item.sport)}</span>
+        ${watchHint}
+      </div>
+      <div class="event-matchup">${renderMatchup(item, 'team-logo')}</div>
+      <div class="event-meta">
+        <span>${escapeHtml(item.network || '')}</span>
+        <span class="event-time">${escapeHtml(item.time || '')}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('weatherSwapToggle').addEventListener('click', async () => {
+  const btn = document.getElementById('weatherSwapToggle');
+  btn.disabled = true;
+  isWeatherSwapped = !isWeatherSwapped;
+  localStorage.setItem('mnv-weather-swapped', isWeatherSwapped ? '1' : '0');
+  // Mutual exclusion with the news swap (they both want the ticker).
+  if (isWeatherSwapped && isSwapped) {
+    isSwapped = false;
+    localStorage.setItem('mnv-swapped', '0');
+    await applySwap();
+  }
+  await applyWeatherSwap();
+  btn.disabled = false;
+});
+
+// =====================================================================
+// Auto-scroll for the weather sidebar. Behavior:
+//   • Default (weather visible): scrolls through the forecast cards and
+//     cycles the active location tab at the bottom.
+//   • Swapped (events visible): scrolls through the events list and
+//     cycles the event sort mode (time/sport) at the bottom.
+// Parallel to the news-side auto-scroll; uses its own RAF id and state
+// so the two can run independently.
+// =====================================================================
+let weatherAutoScrollRafId = null;
+let weatherAutoScrollLastTs = 0;
+let weatherAutoScrollAcc = 0;
+let weatherAutoScrollPaused = false;
+
+function cycleWeatherPanel() {
+  if (isWeatherSwapped) {
+    // Events mode in the weather sidebar: toggle sort.
+    const next = eventSortMode === 'time' ? 'sport' : 'time';
+    setEventSort(next);
+    // The above re-renders only the news sidebar (#newsScrollArea) when
+    // isSwapped is true; we need to refresh OUR area regardless.
+    const area = document.getElementById('weatherScrollArea');
+    renderEventsIntoArea(cachedScheduleData, area);
+  } else {
+    // Weather mode: advance to the next location tab.
+    const tabs = Array.from(document.querySelectorAll('#weatherLocationTabs .tab-btn'));
+    if (!tabs.length) return;
+    const currentIdx = tabs.findIndex(t => t.classList.contains('active'));
+    const nextIdx = (currentIdx + 1) % tabs.length;
+    tabs[currentIdx]?.classList.remove('active');
+    tabs[nextIdx].classList.add('active');
+    const loc = tabs[nextIdx].dataset.location;
+    if (loc === 'browserLocation') {
+      // The browser-location tab has its own click handler that does the
+      // geolocation/fetch work; trigger it instead of calling render.
+      tabs[nextIdx].click();
+    } else {
+      renderWeatherSidebar(loc);
+    }
+  }
+}
+
+function weatherAutoScrollStep(ts) {
+  if (!weatherAutoScrollRafId) return;
+  if (!weatherAutoScrollLastTs) weatherAutoScrollLastTs = ts;
+  const dt = ts - weatherAutoScrollLastTs;
+  weatherAutoScrollLastTs = ts;
+
+  if (!weatherAutoScrollPaused) {
+    weatherAutoScrollAcc += (AUTO_SCROLL_PX_PER_SEC * dt) / 1000;
+    const area = document.getElementById('weatherScrollArea');
+    if (area) {
+      const maxScroll = area.scrollHeight - area.clientHeight;
+      if (maxScroll <= 0) {
+        weatherAutoScrollPaused = true;
+        setTimeout(() => {
+          cycleWeatherPanel();
+          weatherAutoScrollAcc = 0;
+          setTimeout(() => { weatherAutoScrollPaused = false; weatherAutoScrollLastTs = 0; }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
+        }, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
+      } else if (weatherAutoScrollAcc >= 1) {
+        const delta = Math.floor(weatherAutoScrollAcc);
+        weatherAutoScrollAcc -= delta;
+        area.scrollTop = Math.min(area.scrollTop + delta, maxScroll);
+        if (area.scrollTop >= maxScroll - 1) {
+          weatherAutoScrollPaused = true;
+          setTimeout(() => {
+            cycleWeatherPanel();
+            weatherAutoScrollAcc = 0;
+            const a = document.getElementById('weatherScrollArea');
+            if (a) a.scrollTop = 0;
+            setTimeout(() => { weatherAutoScrollPaused = false; weatherAutoScrollLastTs = 0; }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
+          }, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
+        }
+      }
+    }
+  }
+  weatherAutoScrollRafId = requestAnimationFrame(weatherAutoScrollStep);
+}
+
+function setWeatherAutoScroll(enabled) {
+  const btn = document.getElementById('weatherAutoScrollToggle');
+  const statusSpan = btn.querySelector('.scroll-status');
+  if (enabled) {
+    if (!weatherAutoScrollRafId) {
+      weatherAutoScrollLastTs = 0;
+      weatherAutoScrollAcc = 0;
+      weatherAutoScrollPaused = false;
+      weatherAutoScrollRafId = requestAnimationFrame(weatherAutoScrollStep);
+    }
+    statusSpan.textContent = 'ON';
+    btn.classList.add('auto-on');
+    localStorage.setItem('mnv-weather-auto-scroll', '1');
+  } else {
+    if (weatherAutoScrollRafId) {
+      cancelAnimationFrame(weatherAutoScrollRafId);
+      weatherAutoScrollRafId = null;
+    }
+    statusSpan.textContent = 'OFF';
+    btn.classList.remove('auto-on');
+    localStorage.setItem('mnv-weather-auto-scroll', '0');
+  }
+}
+
+document.getElementById('weatherAutoScrollToggle').addEventListener('click', () => {
+  setWeatherAutoScroll(!weatherAutoScrollRafId);
 });
 
 // --- Init ---
@@ -1834,8 +2448,22 @@ document.getElementById('swapToggle').addEventListener('click', async () => {
   // Wait for news and schedule before restoring swap state
   await Promise.allSettled([newsPromise, schedulePromise]);
 
-  if (localStorage.getItem('mnv-swapped') === '1') {
+  // Restore swap states. News-swap and weather-swap are mutually
+  // exclusive (they both want the ticker); if both saved as on, prefer
+  // the more-recently-toggled one — we tiebreak by giving weather
+  // priority since the news swap has existed longer.
+  const savedNewsSwap    = localStorage.getItem('mnv-swapped') === '1';
+  const savedWeatherSwap = localStorage.getItem('mnv-weather-swapped') === '1';
+  if (savedWeatherSwap) {
+    isWeatherSwapped = true;
+    await applyWeatherSwap();
+  } else if (savedNewsSwap) {
     isSwapped = true;
     await applySwap();
+  }
+
+  // Restore the weather sidebar's auto-scroll setting independently.
+  if (localStorage.getItem('mnv-weather-auto-scroll') === '1') {
+    setWeatherAutoScroll(true);
   }
 })();

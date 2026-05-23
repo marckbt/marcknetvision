@@ -135,6 +135,19 @@ function extractGameLink(event) {
   return `https://www.espn.com/${leagueSlug}/game/_/gameId/${id}`;
 }
 
+// Pick the best logo href out of an ESPN-style logos array. ESPN attaches
+// these to teams, leagues, and sometimes sports. Each entry looks like
+// { href, alt, rel, width, height }; `rel` may include 'default', 'dark',
+// 'scoreboard', 'full'. We prefer 'default' on light/dark-neutral cards,
+// falling back to whatever's first. Returns '' if no usable URL.
+function pickLogo(logos) {
+  if (!Array.isArray(logos) || logos.length === 0) return '';
+  // Prefer 'default' rel.
+  const def = logos.find(l => Array.isArray(l?.rel) && l.rel.includes('default'));
+  const pick = def || logos[0];
+  return (pick?.href && /^https?:\/\//i.test(pick.href)) ? pick.href : '';
+}
+
 // Parse ESPN Guide events into schedule items
 function parseESPNGuideEvents(events) {
   const items = [];
@@ -193,8 +206,13 @@ function parseESPNGuideEvents(events) {
       timeZone: 'America/New_York',
     }) + ' ET';
 
-    // Build matchup
+    // Build matchup + extract per-team logos. The matchup string is
+    // preserved (it's the text fallback when team logos aren't available
+    // and is also what the client uses for sorting/searching), but we
+    // additionally emit homeName/awayName + homeLogo/awayLogo so the
+    // client can render team icons next to the names.
     let matchup = '';
+    let homeName = '', awayName = '', homeLogo = '', awayLogo = '';
     if (sportSlug === 'golf') {
       matchup = eventName || 'PGA Tour Event';
       const status = event.status?.type?.description || '';
@@ -202,8 +220,10 @@ function parseESPNGuideEvents(events) {
     } else if (event.competitors?.length >= 2) {
       const away = event.competitors.find(c => c.homeAway === 'away');
       const home = event.competitors.find(c => c.homeAway === 'home');
-      const awayName = away?.team?.shortDisplayName || away?.team?.displayName || away?.displayName || 'TBD';
-      const homeName = home?.team?.shortDisplayName || home?.team?.displayName || home?.displayName || 'TBD';
+      awayName = away?.team?.shortDisplayName || away?.team?.displayName || away?.displayName || 'TBD';
+      homeName = home?.team?.shortDisplayName || home?.team?.displayName || home?.displayName || 'TBD';
+      awayLogo = pickLogo(away?.team?.logos) || pickLogo(away?.logos);
+      homeLogo = pickLogo(home?.team?.logos) || pickLogo(home?.logos);
       matchup = `${awayName} vs ${homeName}`;
     } else if (event.shortName) {
       // shortName is typically "AWAY @ HOME"
@@ -211,6 +231,11 @@ function parseESPNGuideEvents(events) {
     } else {
       matchup = eventName;
     }
+
+    // League / sport logo — prefer the league's own (more specific),
+    // fall back to the sport's. Used as a small icon next to the
+    // sport-badge label on cards and ticker items.
+    const leagueLogo = pickLogo(event.league?.logos) || pickLogo(event.sport?.logos);
 
     // Get network/broadcast info from the JSON feed (airings/broadcasts).
     // Falls back to 'TBD' rather than 'ESPN+' so we don't lie about where
@@ -225,6 +250,9 @@ function parseESPNGuideEvents(events) {
     items.push({
       sport: sportLabel,
       matchup,
+      homeName, awayName,
+      homeLogo, awayLogo,
+      leagueLogo,
       network,
       time,
       link: extractGameLink(event),

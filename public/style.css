@@ -126,35 +126,52 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
 .location-wrapper {
   position: relative;
 }
+/* Location chip pinned to the bottom-right of the main panel, floating
+   just above the bottom ticker bar. Positioned absolutely against
+   #mainContent (which is the flex column to the right of the sidebars). */
+.main-panel-location {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 100;
+}
 .browser-location {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  padding: 6px 14px;
+  padding: 5px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 18px;
+  border-radius: 16px;
   box-shadow: var(--card-shadow);
   white-space: nowrap;
   cursor: pointer;
   transition: all var(--transition-speed);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .browser-location:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* Dropdown opens upward from above the chip. position:absolute anchors
+   it to the location-wrapper (which is position:absolute inside
+   #mainContent), so it sits in the bottom-right of the main panel
+   without being clipped by any overflow:hidden ancestor. */
 .location-dropdown {
   display: none;
   position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 6px;
+  bottom: calc(100% + 6px);
+  right: 0;
   width: 280px;
+  max-width: calc(100vw - 20px);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-  z-index: 2000;
+  z-index: 3000;
   padding: 8px;
 }
 .location-dropdown.visible {
@@ -537,6 +554,39 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   border: 1px solid transparent;
   transition: all 0.2s;
 }
+
+/* Cards with a thumbnail switch to a two-column layout: thumb on the
+   left, source/title/time on the right. Cards without keep the prior
+   single-column block layout (so feeds with no images aren't visually
+   penalized with a blank space). */
+.news-card.has-thumb {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.news-card.has-thumb .news-card-body {
+  flex: 1;
+  min-width: 0; /* let the title wrap instead of forcing the card wider */
+}
+.news-thumb {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  margin: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+.news-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* On narrow phones the 72px thumb crowds the title; drop it to 56px. */
+@media (max-width: 600px) {
+  .news-thumb { width: 56px; height: 56px; }
+}
 .news-card:hover {
   background: var(--bg-card-hover);
   border-color: var(--accent);
@@ -579,6 +629,244 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   height: 14px;
   margin-right: 6px;
   vertical-align: -2px;
+}
+
+/* ===== TICKER WEATHER LOCATION SELECTOR =====
+   Shown in the ticker-logo area only when weather-swap is active. A
+   single hamburger button shows the current location's name; clicking
+   it opens a dropdown of all three options. This keeps the ticker
+   chrome compact (the logo column is only 220px wide / 77px tall). */
+.ticker-wx-locations {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.ticker-wx-loc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  max-width: 100%;
+  transition: all 0.15s;
+}
+.ticker-wx-loc-toggle:hover,
+.ticker-wx-loc-toggle.open {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ticker-wx-loc-toggle .hamburger-bars {
+  width: 12px;
+  height: 9px;
+}
+.ticker-wx-loc-toggle .hamburger-bars span {
+  background: currentColor;
+}
+.ticker-wx-loc-current {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.ticker-wx-loc-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 160px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* The HTML `hidden` attribute implicitly sets display:none, but our
+   explicit `display: flex` above wins on specificity, leaving the menu
+   visible at all times. This rule re-asserts the hidden behavior so
+   menuEl.hidden = true actually hides the dropdown. */
+.ticker-wx-loc-menu[hidden] {
+  display: none !important;
+}
+.ticker-wx-loc-option {
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.ticker-wx-loc-option:hover {
+  background: var(--bg-card-hover);
+  color: var(--accent);
+}
+.ticker-wx-loc-option.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* When weather-swap is active, the hamburger floats as a position:fixed
+   element just above the bottom-left logo. Using position:fixed lifts
+   it out of #tickerBar (which has overflow:hidden for the marquee) and
+   gives it its own stacking context, so the dropdown can't be clipped
+   and the scrolling ticker track can never intercept its taps. The
+   ticker-logo itself stays at its original size — no column reshuffle. */
+body.weather-swapped #tickerWeatherLocations {
+  position: fixed;
+  left: 12px;
+  bottom: calc(var(--ticker-height) + 6px);
+  z-index: 1500;
+}
+
+/* The dropdown opens upward relative to the fixed hamburger; nothing
+   above it can clip it (the fixed ancestor is its own containing block). */
+
+/* Phones: nudge slightly closer to the corner. The base rule's fixed
+   positioning already escapes any overflow clipping. */
+@media (max-width: 600px) {
+  body.weather-swapped #tickerWeatherLocations {
+    left: 8px;
+    bottom: calc(var(--ticker-height) + 4px);
+  }
+}
+
+/* ===== TICKER WEATHER ITEMS =====
+   Used when weather-swap is active: the bottom ticker scrolls the
+   active location's daily forecast in place of sports events.
+   Layout mirrors the regular .ticker-item but with weather-specific
+   children (day, condition, hi/lo temps). */
+.ticker-wx-item {
+  gap: 10px;
+}
+.ticker-wx-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.ticker-wx-icon .wx-icon-img {
+  /* Bumped from 28px (~20%) per user request — only in the ticker;
+     the sidebar weather-day cards keep their original icon size. */
+  width: 34px;
+  height: 34px;
+}
+.ticker-wx-day {
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  /* Bumped from 13px (~15%). */
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+.ticker-wx-date {
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: none;
+  margin-left: 4px;
+}
+.ticker-wx-cond {
+  color: var(--text-secondary);
+  /* Bumped from 13px (~15%). */
+  font-size: 15px;
+}
+.ticker-wx-temps {
+  font-weight: 700;
+  /* Bumped from 14px (~15%). */
+  font-size: 16px;
+  color: var(--text-muted);
+}
+.ticker-wx-high,
+.ticker-wx-low {
+  font-weight: 700;
+}
+
+/* Clickable variant — every ticker weather item opens the same detail
+   panel as the sidebar weather-day cards. Hover hint mirrors the
+   sports-event ticker-item-clickable treatment. */
+.ticker-wx-item-clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ticker-wx-item-clickable:hover {
+  background: var(--bg-card-hover);
+}
+.ticker-wx-item-clickable:hover .ticker-wx-day {
+  color: var(--accent);
+}
+
+/* ===== EVENT / TICKER LOGOS =====
+   league-logo  -> sits inside the sport-badge, small icon next to the
+                   sport name (NFL, MLB, Tennis, …).
+   team-logo    -> 18px team mark used in the event-card matchup row.
+   team-logo-sm -> 16px team mark used in the bottom ticker (vertical
+                   space is tighter there).
+   .team-row + .vs-sep style the structured "logo+name vs logo+name"
+   layout produced by renderMatchup() when team data is available. */
+.league-logo {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  object-fit: contain;
+}
+.team-logo,
+.team-logo-sm {
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.team-logo {
+  width: 18px;
+  height: 18px;
+  margin-right: 5px;
+  vertical-align: -4px;
+}
+.team-logo-sm {
+  /* Bumped from 16px (~20%) — ticker-only variant; sidebar .team-logo
+     keeps its original 18px size. */
+  width: 19px;
+  height: 19px;
+  margin-right: 5px;
+  vertical-align: -4px;
+}
+/* Ticker-scoped league-logo override: .league-logo is shared with the
+   sidebar event cards (where 14px is correct); inside the ticker we
+   want it 20% bigger to match the team-logo-sm bump. */
+.ticker-item .league-logo {
+  width: 17px;
+  height: 17px;
+  vertical-align: -3px;
+}
+.event-matchup .team-row {
+  display: inline-flex;
+  align-items: center;
+}
+.event-matchup .vs-sep {
+  margin: 0 6px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85em;
+  text-transform: uppercase;
+}
+/* Ticker variant: keep it on a single line, no flex wrapping. */
+.ticker-item .matchup .team-row {
+  display: inline;
+}
+.ticker-item .matchup .vs-sep {
+  margin: 0 6px;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 .news-card .title {
   font-size: 12.5px;
@@ -1190,7 +1478,9 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   display: inline-flex;
   align-items: center;
   padding: 0 28px;
-  font-size: 14px;
+  /* Bumped from 14px (~15% larger) per user request — both sports
+     events and weather ticker items inherit/share this base size. */
+  font-size: 16px;
   color: var(--text-secondary);
   border-right: 1px solid var(--border-subtle);
   height: 52px;
@@ -1200,7 +1490,8 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   display: inline-block;
   padding: 4px 12px;
   border-radius: 12px;
-  font-size: 13px;
+  /* Bumped from 13px (~15%). */
+  font-size: 15px;
   font-weight: 700;
   text-transform: uppercase;
   margin-right: 14px;
@@ -1218,17 +1509,20 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
 
 .ticker-item .matchup {
   font-weight: 600;
-  font-size: 14px;
+  /* Bumped from 14px (~15%). */
+  font-size: 16px;
   color: var(--text-primary);
   margin-right: 10px;
 }
 .ticker-item .network {
-  font-size: 13px;
+  /* Bumped from 13px (~15%). */
+  font-size: 15px;
   color: var(--accent);
   font-weight: 600;
 }
 .ticker-item .time {
-  font-size: 13px;
+  /* Bumped from 13px (~15%). */
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   margin-left: 12px;
@@ -1397,6 +1691,265 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   padding: 20px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ===== TICKER LOGO ALERT BADGE =====
+   When any weather alert is active across the loaded locations, the
+   MNV logo at the bottom-left of the ticker is replaced with this
+   clickable badge. Click it to open the bottom-right weather alert
+   popup with the highest-severity alert's details. */
+.ticker-logo-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: currentColor;
+  text-align: left;
+  position: relative;
+  font-family: inherit;
+  transition: filter 0.15s;
+}
+.ticker-logo-alert:hover { filter: brightness(1.15); }
+.ticker-logo-alert:active { filter: brightness(0.95); }
+/* The whole badge tints with the chosen severity color via currentColor;
+   the icon and event text inherit it, while the location text stays a
+   softer secondary tone for hierarchy. */
+.ticker-logo-alert.wx-alert--extreme,
+.ticker-logo-alert.wx-alert--warning  { color: #ef4444; background: rgba(239,68,68,0.10); }
+.ticker-logo-alert.wx-alert--watch    { color: #f59e0b; background: rgba(245,158,11,0.10); }
+.ticker-logo-alert.wx-alert--advisory { color: #eab308; background: rgba(234,179,8,0.10); }
+.ticker-logo-alert.wx-alert--statement{ color: var(--accent); background: var(--accent-glow); }
+/* Subtle pulse on the most severe (Warning/Extreme) so it pulls the eye. */
+.ticker-logo-alert.wx-alert--warning,
+.ticker-logo-alert.wx-alert--extreme {
+  animation: tickerLogoAlertPulse 2s ease-in-out infinite;
+}
+@keyframes tickerLogoAlertPulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(239,68,68,0.25); }
+  50%      { box-shadow: inset 0 0 0 2px rgba(239,68,68,0.65); }
+}
+.ticker-logo-alert-icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.ticker-logo-alert-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.ticker-logo-alert-event {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ticker-logo-alert-loc {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.ticker-logo-alert-count {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: currentColor;
+  color: #fff;
+  /* The background is currentColor (the severity color), so override
+     the inherited color so the digit reads against it. */
+}
+.ticker-logo-alert-count {
+  color: #fff !important;
+}
+
+/* Whenever the alert badge is present, force the .ticker-logo column
+   to stay visible — even if a media query (phones) or body.ticker-relocated
+   (mobile-ticker-in-sidebar) would otherwise hide it. The badge IS the
+   alert affordance, so we never want it hidden. */
+.ticker-logo:has(#tickerLogoAlertBadge:not([style*="display: none"])) {
+  display: flex !important;
+}
+
+@media (max-width: 600px) {
+  /* Phone-specific compact sizing for the badge content. */
+  .ticker-logo:has(#tickerLogoAlertBadge:not([style*="display: none"])) {
+    width: auto;
+    min-width: 140px;
+    max-width: 180px;
+  }
+  .ticker-logo-alert {
+    padding: 4px 8px;
+    gap: 6px;
+  }
+  .ticker-logo-alert-icon { font-size: 22px; }
+  .ticker-logo-alert-event { font-size: 11px; }
+  .ticker-logo-alert-loc { font-size: 9px; }
+}
+
+/* ===== WEATHER ALERTS =====
+   Active NWS alerts (watches/warnings/advisories) shown as a clickable
+   banner above the forecast in the weather sidebar and inside the main
+   panel's weather detail view. Clicking opens .weather-alert-popup. */
+.wx-alerts-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.wx-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border-left: 4px solid currentColor;
+  background: rgba(255,255,255,0.04);
+  transition: background 0.15s, transform 0.1s;
+}
+.wx-alert:hover { background: rgba(255,255,255,0.09); }
+.wx-alert:active { transform: scale(0.98); }
+.wx-alert-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.wx-alert-body { flex: 1; min-width: 0; }
+.wx-alert-event {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: currentColor;
+  margin-bottom: 2px;
+}
+.wx-alert-area {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Severity color tones — color the left border, icon, and event title. */
+.wx-alert--extreme,
+.wx-alert--warning  { color: #ef4444; }
+.wx-alert--watch    { color: #f59e0b; }
+.wx-alert--advisory { color: #eab308; }
+.wx-alert--statement { color: var(--accent); }
+
+/* Main-panel weather-detail variant: give the banner more breathing
+   room since it's inside the wider content area. */
+.content-panel .wx-alerts-banner {
+  margin: 10px 0 18px;
+}
+.content-panel .wx-alert { padding: 12px 14px; }
+.content-panel .wx-alert-event { font-size: 13px; }
+.content-panel .wx-alert-area { font-size: 12px; white-space: normal; }
+
+/* ===== WEATHER ALERT POPUP (bottom-right mirror of news popup) ===== */
+.weather-alert-popup {
+  position: fixed;
+  bottom: calc(var(--ticker-height) + 8px);
+  right: 16px;
+  width: 380px;
+  max-height: 450px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  z-index: 2500;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(20px) scale(0.95);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.weather-alert-popup.visible {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+  pointer-events: all;
+}
+@media (max-width: 600px) {
+  .weather-alert-popup {
+    width: calc(100vw - 32px);
+    max-width: 380px;
+    right: 16px;
+    left: auto;
+  }
+}
+.wx-alert-pop-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid currentColor;
+}
+.wx-alert-pop-headline {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+.wx-alert-pop-area {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.wx-alert-pop-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+.wx-alert-pop-meta strong { color: var(--text-secondary); font-weight: 600; }
+.wx-alert-pop-section {
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.wx-alert-pop-section strong {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.wx-alert-pop-instruction strong { color: #ef4444; }
+.wx-alert-pop-source {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-style: italic;
 }
 
 /* ===== NEWS CHAT POPUP ===== */
@@ -1610,8 +2163,9 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
     min-width: 100px;
     padding: 4px 8px;
   }
-  .ticker-item { padding: 0 18px; font-size: 13px; }
-  .ticker-item .sport-badge { font-size: 11px; padding: 3px 9px; margin-right: 10px; }
+  /* Tablet ticker text bumped 15% from 13px/11px. */
+  .ticker-item { padding: 0 18px; font-size: 15px; }
+  .ticker-item .sport-badge { font-size: 13px; padding: 3px 9px; margin-right: 10px; }
 
   /* News chat popup needs to actually fit on a narrow viewport. */
   .news-chat-popup {
@@ -1663,10 +2217,11 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   /* DOW takes a full row inside the narrow conditions block; just hide it. */
   .conditions-dow { display: none; }
 
-  .ticker-item { padding: 0 14px; font-size: 12px; height: 44px; }
-  .ticker-item .sport-badge { font-size: 10px; padding: 2px 8px; margin-right: 8px; }
-  .ticker-item .matchup { font-size: 12px; }
-  .ticker-item .network, .ticker-item .time { font-size: 11px; }
+  /* Phone ticker text bumped 15% from 12px/10px/11px. */
+  .ticker-item { padding: 0 14px; font-size: 14px; height: 44px; }
+  .ticker-item .sport-badge { font-size: 12px; padding: 2px 8px; margin-right: 8px; }
+  .ticker-item .matchup { font-size: 14px; }
+  .ticker-item .network, .ticker-item .time { font-size: 13px; }
 
   /* In-panel iframes were sized off the full viewport-minus-160; that
      math breaks once they're inside a stacked container. Constrain them

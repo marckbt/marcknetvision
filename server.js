@@ -5,12 +5,25 @@ const xml2js = require('xml2js');
 const path = require('path');
 const fs = require('fs');
 
-const { refreshWeather } = require('./weather-scraper');
+const { refreshWeather, fetchNWSAlerts } = require('./weather-scraper');
 const { refreshSchedule } = require('./schedule-scraper');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const parser = new RSSParser();
+// rss-parser sees default RSS/Atom fields out of the box (enclosure,
+// itunes:image, etc.) but skips the Media RSS namespace unless asked.
+// We register media:thumbnail and media:content so feeds like The Verge,
+// Engadget, BBC, etc. that publish images via <media:thumbnail url="…"/>
+// or <media:content medium="image" url="…"/> can populate item.thumbnail.
+const parser = new RSSParser({
+  customFields: {
+    item: [
+      ['media:thumbnail', 'mediaThumbnail', { keepArray: true }],
+      ['media:content', 'mediaContent', { keepArray: true }],
+      ['media:group', 'mediaGroup'],
+    ],
+  },
+});
 
 // Reddit blocks rss-parser's built-in HTTP client (403/429) even with a
 // browser User-Agent — its request signature differs from a normal
@@ -63,6 +76,68 @@ function resolveFavicon(feedUrl, parsedFeed) {
     const host = new URL(feedUrl).hostname;
     if (host) return `https://www.google.com/s2/favicons?domain=${host}&sz=32`;
   } catch (_) { /* unparseable URL — give up silently */ }
+  return '';
+}
+
+// --- Article thumbnail extraction ------------------------------------------
+// Pull a single representative image URL out of an RSS/Atom item. Tries
+// the common sources in order of reliability:
+//   1. media:thumbnail / media:content (Media RSS namespace)
+//   2. enclosure (any image/* MIME)
+//   3. itunes:image (some publishers use it for articles too)
+//   4. first <img src="…"> inside the item's content/description HTML
+// Returns '' when nothing usable is found — the client renders no
+// thumbnail in that case (it never falls back to a generic placeholder).
+function extractThumbnail(item) {
+  const fromMedia = (arr) => {
+    if (!Array.isArray(arr)) return '';
+    for (const m of arr) {
+      const url = m?.$?.url || m?.url;
+      const medium = (m?.$?.medium || '').toLowerCase();
+      const type = (m?.$?.type || '').toLowerCase();
+      if (!url) continue;
+      // media:content can carry video too — filter to images.
+      if (medium && medium !== 'image') continue;
+      if (type && !type.startsWith('image/')) continue;
+      if (/^https?:\/\//i.test(url)) return url;
+    }
+    return '';
+  };
+
+  // 1) media:thumbnail
+  let url = fromMedia(item.mediaThumbnail);
+  if (url) return url;
+
+  // 2) media:content (direct, or nested inside media:group)
+  url = fromMedia(item.mediaContent);
+  if (url) return url;
+  const groupContent = item.mediaGroup?.['media:content'];
+  if (groupContent) {
+    url = fromMedia(Array.isArray(groupContent) ? groupContent : [groupContent]);
+    if (url) return url;
+  }
+
+  // 3) enclosure (rss-parser surfaces this as item.enclosure)
+  const enc = item.enclosure;
+  if (enc?.url && (enc.type || '').toLowerCase().startsWith('image/')) {
+    return enc.url;
+  }
+
+  // 4) itunes:image (rss-parser exposes as itunes.image on items it
+  //    matches; safe even when the field isn't present).
+  if (item.itunes?.image && /^https?:\/\//i.test(item.itunes.image)) {
+    return item.itunes.image;
+  }
+
+  // 5) First <img src="…"> inside content or content:encoded. Many
+  //    publishers stuff the hero image into the body HTML even when
+  //    they don't bother with Media RSS.
+  const html = item['content:encoded'] || item.content || item.contentSnippet || '';
+  if (typeof html === 'string') {
+    const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (m && /^https?:\/\//i.test(m[1])) return m[1];
+  }
+
   return '';
 }
 
@@ -282,6 +357,7 @@ app.get('/api/news/:category', async (req, res) => {
         articles.push({
           source: feed.name,
           favicon,
+          thumbnail: extractThumbnail(item),
           title: item.title || 'Untitled',
           link: item.link || '#',
           pubDate,
@@ -394,11 +470,21 @@ app.get('/api/weather-by-coords', async (req, res) => {
       if (days.length >= 7) break;
     }
 
+    // Fetch active alerts for the same point. Best-effort; alerts
+    // failing won't block the forecast response.
+    let alerts = [];
+    try {
+      alerts = await fetchNWSAlerts(parseFloat(lat), parseFloat(lon));
+    } catch (e) {
+      console.error('[WeatherByCoords] Alerts fetch failed:', e.message);
+    }
+
     res.json({
       name: name || `${lat}, ${lon}`,
       sources: ['NWS'],
       lastUpdated: new Date().toISOString(),
       daily: days,
+      alerts,
     });
   } catch (e) {
     console.error('[WeatherByCoords] Error:', e.message);

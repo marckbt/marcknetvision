@@ -24,6 +24,76 @@ const LOCATIONS = {
 
 const UA = 'MarckNetVision/1.0 (weather dashboard; contact@marcknetvision.local)';
 
+// Fetch active NWS weather alerts (watches, warnings, advisories) for a
+// point. Returns a normalized array sorted by severity (Extreme first).
+// Empty array on failure — alerts are best-effort, never block forecasts.
+async function fetchNWSAlerts(lat, lon) {
+  if (lat == null || lon == null) return [];
+  try {
+    const url = `https://api.weather.gov/alerts/active?point=${lat},${lon}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': UA, Accept: 'application/geo+json' },
+      timeout: 10000,
+    });
+    if (!res.ok) throw new Error(`NWS Alerts ${res.status}`);
+    const data = await res.json();
+    const features = Array.isArray(data.features) ? data.features : [];
+    const now = Date.now();
+
+    // Severity ranking — lower index = more important.
+    const SEV_ORDER = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 };
+    // Bucket the alert into our three user-facing buckets based on the
+    // event name ("...Warning" | "...Watch" | "...Advisory" | other).
+    const bucketOf = (evt) => {
+      const e = (evt || '').toLowerCase();
+      if (e.includes('warning')) return 'warning';
+      if (e.includes('watch')) return 'watch';
+      if (e.includes('advisory')) return 'advisory';
+      return 'statement';
+    };
+
+    const alerts = features
+      .map(f => f.properties || {})
+      .filter(p => {
+        // Drop cancellations and explicitly-expired alerts. We keep
+        // "Update" and "Alert" messageTypes.
+        if (p.messageType === 'Cancel') return false;
+        if (p.expires) {
+          const t = new Date(p.expires).getTime();
+          if (Number.isFinite(t) && t < now) return false;
+        }
+        return true;
+      })
+      .map(p => ({
+        id:          p.id || p['@id'] || '',
+        event:       p.event || 'Weather Alert',
+        bucket:      bucketOf(p.event),
+        severity:    p.severity   || 'Unknown',
+        urgency:     p.urgency    || 'Unknown',
+        certainty:   p.certainty  || 'Unknown',
+        headline:    p.headline   || '',
+        description: p.description || '',
+        instruction: p.instruction || '',
+        areaDesc:    p.areaDesc   || '',
+        effective:   p.effective  || '',
+        expires:     p.expires    || '',
+        sender:      p.senderName || 'NWS',
+      }));
+
+    // Sort: most-severe first, then by effective time (most recent first).
+    alerts.sort((a, b) => {
+      const sa = SEV_ORDER[a.severity] ?? 9;
+      const sb = SEV_ORDER[b.severity] ?? 9;
+      if (sa !== sb) return sa - sb;
+      return new Date(b.effective || 0) - new Date(a.effective || 0);
+    });
+    return alerts;
+  } catch (e) {
+    console.error(`[Weather] NWS alerts fetch failed for ${lat},${lon}: ${e.message}`);
+    return [];
+  }
+}
+
 // Fetch NWS forecast
 async function fetchNWSForecast(url) {
   try {
@@ -205,11 +275,13 @@ async function refreshWeather() {
   for (const [key, loc] of Object.entries(LOCATIONS)) {
     console.log(`[Weather] Fetching ${loc.name}...`);
 
-    // Fetch from both sources in parallel
-    const [nwsPeriods, wuData] = await Promise.all([
+    // Fetch from forecast sources + alerts in parallel.
+    const [nwsPeriods, wuData, alerts] = await Promise.all([
       fetchNWSForecast(loc.nwsForecast),
       fetchWUForecast(key),
+      fetchNWSAlerts(loc.lat, loc.lon),
     ]);
+    console.log(`[Weather] ${loc.name}: ${alerts.length} active alert(s)`);
 
     const nwsDays = parseNWSDays(nwsPeriods);
     const wuDays = parseWUData(wuData);
@@ -253,6 +325,7 @@ async function refreshWeather() {
       sources: usedSources,
       lastUpdated: new Date().toISOString(),
       daily,
+      alerts,
     };
   }
 
@@ -275,7 +348,7 @@ function estimateCloudCover(condition) {
   return 50;
 }
 
-module.exports = { refreshWeather };
+module.exports = { refreshWeather, fetchNWSAlerts };
 
 // Run directly for testing
 if (require.main === module) {
