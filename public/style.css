@@ -631,117 +631,47 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   vertical-align: -2px;
 }
 
-/* ===== TICKER WEATHER LOCATION SELECTOR =====
-   Shown in the ticker-logo area only when weather-swap is active. A
-   single hamburger button shows the current location's name; clicking
-   it opens a dropdown of all three options. This keeps the ticker
-   chrome compact (the logo column is only 220px wide / 77px tall). */
-.ticker-wx-locations {
-  position: relative;
-  display: flex;
-  justify-content: center;
-}
-.ticker-wx-loc-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-size: 10px;
-  font-weight: 600;
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  cursor: pointer;
-  max-width: 100%;
-  transition: all 0.15s;
-}
-.ticker-wx-loc-toggle:hover,
-.ticker-wx-loc-toggle.open {
-  border-color: var(--accent);
+/* ===== TICKER WEATHER LOCATION LABEL =====
+   When weather-swap is active the ticker cycles through every location's
+   weekly forecast. This label sits at the top-left of the ticker content
+   area showing which location is currently scrolling, and slides
+   vertically each time the ticker advances to the next location. */
+.ticker-wx-label {
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  z-index: 20;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
   color: var(--accent);
-}
-.ticker-wx-loc-toggle .hamburger-bars {
-  width: 12px;
-  height: 9px;
-}
-.ticker-wx-loc-toggle .hamburger-bars span {
-  background: currentColor;
-}
-.ticker-wx-loc-current {
+  background: var(--bg-ticker);
+  padding: 2px 9px;
+  border-radius: 0 0 8px 0;
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  pointer-events: none;
   white-space: nowrap;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 130px;
+}
+/* Vertical slide-in, replayed (via class toggle in JS) on each location
+   change — the "vertically scroll to the next location" cue. */
+.ticker-wx-label.wx-label-slide {
+  animation: wxLabelSlide 0.4s ease-out;
+}
+@keyframes wxLabelSlide {
+  0%   { transform: translateY(-120%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
 }
 
-.ticker-wx-loc-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  min-width: 160px;
-  background: var(--bg-card);
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  padding: 4px;
-  z-index: 2000;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-/* The HTML `hidden` attribute implicitly sets display:none, but our
-   explicit `display: flex` above wins on specificity, leaving the menu
-   visible at all times. This rule re-asserts the hidden behavior so
-   menuEl.hidden = true actually hides the dropdown. */
-.ticker-wx-loc-menu[hidden] {
-  display: none !important;
-}
-.ticker-wx-loc-option {
-  text-align: left;
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
-}
-.ticker-wx-loc-option:hover {
-  background: var(--bg-card-hover);
-  color: var(--accent);
-}
-.ticker-wx-loc-option.active {
-  background: var(--accent);
-  color: #fff;
-}
-
-/* When weather-swap is active, the hamburger floats as a position:fixed
-   element just above the bottom-left logo. Using position:fixed lifts
-   it out of #tickerBar (which has overflow:hidden for the marquee) and
-   gives it its own stacking context, so the dropdown can't be clipped
-   and the scrolling ticker track can never intercept its taps. The
-   ticker-logo itself stays at its original size — no column reshuffle. */
-body.weather-swapped #tickerWeatherLocations {
-  position: fixed;
-  left: 12px;
-  bottom: calc(var(--ticker-height) + 6px);
-  z-index: 1500;
-}
-
-/* The dropdown opens upward relative to the fixed hamburger; nothing
-   above it can clip it (the fixed ancestor is its own containing block). */
-
-/* Phones: nudge slightly closer to the corner. The base rule's fixed
-   positioning already escapes any overflow clipping. */
-@media (max-width: 600px) {
-  body.weather-swapped #tickerWeatherLocations {
-    left: 8px;
-    bottom: calc(var(--ticker-height) + 4px);
-  }
+/* During weather-swap the bottom ticker is driven by the Web Animations
+   API (single horizontal pass per location), so disable the default
+   infinite CSS marquee to avoid the two fighting over the transform. */
+body.weather-swapped .ticker-track {
+  animation: none;
 }
 
 /* ===== TICKER WEATHER ITEMS =====
@@ -1372,11 +1302,21 @@ body.weather-swapped #tickerWeatherLocations {
   height: 100%;
   gap: 2px;
 }
-.conditions-time {
-  font-size: 17px;
+.conditions-time-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.conditions-time,
+.conditions-date {
+  font-size: 15px;
   font-weight: 700;
   color: var(--accent);
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 .conditions-wx {
   display: flex;
@@ -1743,6 +1683,7 @@ body.weather-swapped #tickerWeatherLocations {
   flex-direction: column;
   min-width: 0;
   line-height: 1.15;
+  overflow: hidden; /* clip the vertical slide so it reads as a scroll */
 }
 .ticker-logo-alert-event {
   font-size: 12px;
@@ -1761,21 +1702,35 @@ body.weather-swapped #tickerWeatherLocations {
   text-overflow: ellipsis;
   margin-top: 2px;
 }
-.ticker-logo-alert-count {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 8px;
-  background: currentColor;
-  color: #fff;
-  /* The background is currentColor (the severity color), so override
-     the inherited color so the digit reads against it. */
+/* The event + location text that vertically slides in on each cycle. */
+.ticker-logo-alert-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
-.ticker-logo-alert-count {
-  color: #fff !important;
+.ticker-logo-alert-text.logo-alert-slide {
+  animation: logoAlertSlide 0.4s ease-out;
+}
+@keyframes logoAlertSlide {
+  0%   { transform: translateY(-110%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+/* Dots indicator — one dot per active alert, the current one solid. */
+.ticker-logo-alert-dots {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.ticker-logo-alert-dots .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+.ticker-logo-alert-dots .dot.active {
+  opacity: 1;
 }
 
 /* Whenever the alert badge is present, force the .ticker-logo column
@@ -2212,6 +2167,8 @@ body.weather-swapped #tickerWeatherLocations {
     gap: 0;
   }
   .conditions-time { font-size: 13px; letter-spacing: 0.5px; }
+  .conditions-time-row { gap: 5px; }
+  .conditions-date { font-size: 13px; letter-spacing: 0.5px; }
   .conditions-temp { font-size: 15px; }
   .conditions-icon, .conditions-icon .wx-icon-img { width: 22px; height: 22px; }
   /* DOW takes a full row inside the narrow conditions block; just hide it. */

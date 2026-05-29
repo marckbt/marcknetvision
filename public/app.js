@@ -375,12 +375,13 @@ async function loadWeather() {
       renderPivotalSidebar();
     } else {
       // If weather-swap is on, the sidebar is showing events instead —
-      // skip rendering forecast cards into it and just refresh the
-      // ticker (which is currently showing the forecast).
+      // keep events there and make sure the ticker weather-cycle is
+      // running (it auto-picks up newly-loaded location data on its
+      // next iteration).
       if (isWeatherSwapped) {
         const areaEl = document.getElementById('weatherScrollArea');
         renderEventsIntoArea(cachedScheduleData, areaEl);
-        renderWeatherInTicker(activeLoc);
+        if (!wxCycleActive) startWeatherCycle();
       } else {
         renderWeatherSidebar(activeLoc);
       }
@@ -402,16 +403,11 @@ function setupWeatherTabs() {
       tabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
       const loc = e.target.dataset.location;
-      // When weather-swap is active, the sidebar is showing the events
-      // list — we mustn't clobber it by re-rendering forecast cards.
-      // Just route the new location's forecast into the ticker and keep
-      // the ticker's location-selector mirror in sync.
-      if (isWeatherSwapped) {
-        if (loc !== 'pivotal' && loc !== 'browserLocation') {
-          renderWeatherInTicker(loc);
-        }
-        syncTickerLocations();
-      } else if (loc === 'pivotal') {
+      // In weather-swap mode the location tabs are hidden and the ticker
+      // cycles through every location automatically, so there's nothing
+      // to do here. Only handle tab clicks in normal (non-swap) mode.
+      if (isWeatherSwapped) return;
+      if (loc === 'pivotal') {
         renderPivotalSidebar();
       } else if (loc === 'browserLocation') {
         renderBrowserLocationWeather();
@@ -615,6 +611,16 @@ function closeWeatherAlertPopup() {
 // shows the highest-severity event + the affected location and opens
 // the bottom-right weather-alert popup on click. Cleared (logo
 // restored) when no alerts are active.
+//
+// With multiple alerts the badge cycles through them one at a time —
+// vertically sliding to the next every 5 seconds — and shows a row of
+// dots (one per alert) indicating how many there are and which is
+// currently displayed. Clicking opens whichever alert is showing.
+let _logoAlertList = [];
+let _logoAlertIdx = 0;
+let _logoAlertTimer = null;
+const LOGO_ALERT_CYCLE_MS = 5000;
+
 function updateLogoAlert() {
   const logoArea = document.getElementById('logoArea');
   const mnvLogo  = document.getElementById('mnvLogo');
@@ -651,20 +657,22 @@ function updateLogoAlert() {
   }
   unique.sort((a, b) => (SEV[a.severity] ?? 9) - (SEV[b.severity] ?? 9));
 
+  // Always clear any running cycle before re-evaluating.
+  if (_logoAlertTimer) { clearInterval(_logoAlertTimer); _logoAlertTimer = null; }
+
   let badge = document.getElementById('tickerLogoAlertBadge');
 
   if (unique.length === 0) {
     // All clear — restore the MNV logo, hide the badge.
     if (badge) badge.style.display = 'none';
     mnvLogo.style.display = '';
+    _logoAlertList = [];
     return;
   }
 
-  // Make sure the popup can look up the chosen alert by id even if no
-  // sidebar banner has been rendered yet (e.g. weather-swap is on so
-  // the sidebar shows events instead).
-  const top = unique[0];
-  if (top.id) _wxAlertCache.set(top.id, top);
+  // Cache every alert by id so the popup can resolve whichever one is
+  // currently displayed (even when no sidebar banner is rendered).
+  unique.forEach(a => { if (a.id) _wxAlertCache.set(a.id, a); });
 
   // Build the badge lazily; reuse on subsequent updates.
   if (!badge) {
@@ -675,23 +683,58 @@ function updateLogoAlert() {
     // Insert before the MNV svg so it occupies the same spot.
     logoArea.insertBefore(badge, mnvLogo);
   }
+  badge.style.display = '';
+  mnvLogo.style.display = 'none';
 
-  // If multiple alerts, surface the count so users know to click for
-  // the full list (via the sidebar banners; popup shows one at a time).
-  const extra = unique.length > 1 ? `<span class="ticker-logo-alert-count">+${unique.length - 1}</span>` : '';
-  badge.className = `ticker-logo-alert ${alertCssClass(top)}`;
+  _logoAlertList = unique;
+  _logoAlertIdx = 0;
+  renderLogoAlertItem(badge);
+
+  // Multiple alerts → cycle one at a time every 5s.
+  if (unique.length > 1) {
+    _logoAlertTimer = setInterval(() => {
+      _logoAlertIdx = (_logoAlertIdx + 1) % _logoAlertList.length;
+      renderLogoAlertItem(badge);
+    }, LOGO_ALERT_CYCLE_MS);
+  }
+}
+
+// Render the currently-indexed alert into the logo badge, with a
+// vertical slide on the text and a dots indicator when there's more
+// than one alert.
+function renderLogoAlertItem(badge) {
+  const alerts = _logoAlertList;
+  const idx = _logoAlertIdx;
+  const a = alerts[idx];
+  if (!badge || !a) return;
+
+  const dots = alerts.length > 1
+    ? `<span class="ticker-logo-alert-dots" aria-hidden="true">${
+        alerts.map((_, i) => `<span class="dot${i === idx ? ' active' : ''}"></span>`).join('')
+      }</span>`
+    : '';
+
+  badge.className = `ticker-logo-alert ${alertCssClass(a)}`;
   badge.innerHTML = `
     <span class="ticker-logo-alert-icon" aria-hidden="true">&#9888;</span>
     <span class="ticker-logo-alert-body">
-      <span class="ticker-logo-alert-event">${escapeHtml(top.event)}</span>
-      <span class="ticker-logo-alert-loc">${escapeHtml(top._locName || '')}</span>
+      <span class="ticker-logo-alert-text">
+        <span class="ticker-logo-alert-event">${escapeHtml(a.event)}</span>
+        <span class="ticker-logo-alert-loc">${escapeHtml(a._locName || '')}</span>
+      </span>
+      ${dots}
     </span>
-    ${extra}
   `;
-  badge.title = `${top.event} — ${top._locName || ''}\nClick for details`;
-  badge.onclick = () => { if (top.id) showWeatherAlertPopup(top.id); };
-  badge.style.display = '';
-  mnvLogo.style.display = 'none';
+  badge.title = `${a.event} — ${a._locName || ''}${alerts.length > 1 ? ` (${idx + 1}/${alerts.length})` : ''}\nClick for details`;
+  badge.onclick = () => { if (a.id) showWeatherAlertPopup(a.id); };
+
+  // Replay the vertical slide on the text portion (dots stay put).
+  const textEl = badge.querySelector('.ticker-logo-alert-text');
+  if (textEl) {
+    textEl.classList.remove('logo-alert-slide');
+    void textEl.offsetWidth; // force reflow so the animation restarts
+    textEl.classList.add('logo-alert-slide');
+  }
 }
 
 function showWeatherscanVideo() {
@@ -1251,7 +1294,9 @@ function setAutoRefresh(enabled) {
 }
 
 document.getElementById('autoRefreshToggle').addEventListener('click', () => {
-  setAutoRefresh(!autoRefreshInterval);
+  // autoRefreshCountdown is the live "on" indicator (autoRefreshInterval
+  // is vestigial and never set, which is why the toggle never turned off).
+  setAutoRefresh(!autoRefreshCountdown);
 });
 
 // Restore auto-refresh state
@@ -1747,6 +1792,17 @@ function updateCurrentTime() {
     hour12: true, timeZone: 'America/New_York'
   });
   document.getElementById('conditionsTime').textContent = timeStr;
+
+  // Date in "27MAY26" form: 2-digit day + uppercase 3-letter month +
+  // 2-digit year, evaluated in the same (Eastern) time zone as the clock.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit', month: 'short', year: '2-digit',
+    timeZone: 'America/New_York',
+  }).formatToParts(now);
+  const get = (t) => (parts.find(p => p.type === t)?.value || '');
+  const dateStr = `${get('day')}${get('month').toUpperCase()}${get('year')}`;
+  const dateEl = document.getElementById('conditionsDate');
+  if (dateEl) dateEl.textContent = dateStr;
 }
 
 async function fetchCurrentWeather() {
@@ -2073,37 +2129,93 @@ document.getElementById('swapToggle').addEventListener('click', async () => {
 // =====================================================================
 let isWeatherSwapped = false;
 
-// Render the active location's daily forecast in the bottom ticker.
-// Items are clickable — each one opens the same detail panel that the
-// sidebar weather-day cards open, so the user gets identical behavior
-// regardless of where weather is currently displayed. Pulls from
-// browserLocationWeather for the Browser Location tab (a separate
-// store from weatherData[]).
-function renderWeatherInTicker(locationKey) {
+// ===== Weather ticker cycle =====
+// In weather-swap mode the bottom ticker cycles through EVERY weather
+// location: it scrolls one location's full weekly forecast horizontally,
+// and when that location's forecast has fully scrolled past, advances
+// (with a vertical slide on the location label) to the next location,
+// looping back to the first after the last. The current location name
+// shows at the top-left of the ticker.
+let wxCycleActive = false;
+let wxCycleIndex = 0;
+let wxCycleAnim = null;       // current Web Animations API handle
+let wxCycleTimer = null;      // retry/transition timeout handle
+const WX_CYCLE_PX_PER_SEC = 70;
+
+// Build the ordered list of weather locations that currently have data,
+// derived from the sidebar location tabs so order matches the UI.
+function getWeatherCycleLocations() {
+  const tabs = Array.from(document.querySelectorAll('#weatherLocationTabs .tab-btn'));
+  const list = [];
+  tabs.forEach(t => {
+    const key = t.dataset.location;
+    if (key === 'pivotal') return;
+    if (key === 'browserLocation') {
+      if (browserLocationWeather && browserLocationWeather.daily?.length) {
+        list.push({ key, name: (browserLocationWeather.name || t.textContent.trim()), source: browserLocationWeather });
+      }
+    } else if (weatherData && weatherData[key] && weatherData[key].daily?.length) {
+      list.push({ key, name: (weatherData[key].name || t.textContent.trim()), source: weatherData[key] });
+    }
+  });
+  return list;
+}
+
+// Update the top-left location label, sliding it vertically when the
+// name changes (the "vertical scroll to the next location" cue).
+function setTickerWeatherLabel(name) {
+  const label = document.getElementById('tickerWeatherLabel');
+  if (!label) return;
+  label.hidden = false;
+  if (label.textContent === name) return;
+  label.textContent = name;
+  // Restart the vertical slide-in animation.
+  label.classList.remove('wx-label-slide');
+  // Force reflow so the animation can replay.
+  void label.offsetWidth;
+  label.classList.add('wx-label-slide');
+}
+
+function startWeatherCycle() {
+  wxCycleActive = true;
+  wxCycleIndex = 0;
+  renderWeatherCycleLocation();
+}
+
+function stopWeatherCycle() {
+  wxCycleActive = false;
+  if (wxCycleTimer) { clearTimeout(wxCycleTimer); wxCycleTimer = null; }
+  if (wxCycleAnim) { try { wxCycleAnim.cancel(); } catch (_) {} wxCycleAnim = null; }
+  const label = document.getElementById('tickerWeatherLabel');
+  if (label) { label.hidden = true; label.textContent = ''; }
   const track = document.getElementById('tickerTrack');
-  if (!track) return;
+  if (track) track.style.transform = '';
+}
 
-  // Resolve which forecast source to render and which detail handler to
-  // wire onclick to. Browser Location lives in its own variable.
-  let daily, onClickFor;
-  if (locationKey === 'browserLocation') {
-    if (!browserLocationWeather || !browserLocationWeather.daily?.length) {
-      track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
-      return;
-    }
-    daily = browserLocationWeather.daily;
-    onClickFor = (i) => `showBrowserLocationDetail(${i})`;
-  } else {
-    if (!weatherData || !weatherData[locationKey] || !weatherData[locationKey].daily?.length) {
-      track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
-      return;
-    }
-    daily = weatherData[locationKey].daily;
-    onClickFor = (i) => `showWeatherDetail('${locationKey}', ${i})`;
+function renderWeatherCycleLocation() {
+  if (!wxCycleActive) return;
+  const track = document.getElementById('tickerTrack');
+  const content = track ? track.parentElement : null;
+  if (!track || !content) return;
+
+  const locs = getWeatherCycleLocations();
+  if (!locs.length) {
+    // Data not loaded yet — show a placeholder and retry shortly.
+    track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
+    wxCycleTimer = setTimeout(renderWeatherCycleLocation, 2000);
+    return;
   }
+  if (wxCycleIndex >= locs.length) wxCycleIndex = 0;
+  const loc = locs[wxCycleIndex];
 
-  const itemsHtml = daily.map((day, i) => {
-    return `
+  // Top-left location label (with vertical slide).
+  setTickerWeatherLabel(loc.name);
+
+  const onClickFor = loc.key === 'browserLocation'
+    ? (i) => `showBrowserLocationDetail(${i})`
+    : (i) => `showWeatherDetail('${loc.key}', ${i})`;
+
+  track.innerHTML = loc.source.daily.map((day, i) => `
       <div class="ticker-item ticker-wx-item ticker-wx-item-clickable" onclick="${onClickFor(i)}">
         <span class="ticker-wx-icon">${getWxIcon(day.condition)}</span>
         <span class="ticker-wx-day">${escapeHtml(day.dayName)} <span class="ticker-wx-date">${escapeHtml(day.date)}</span></span>
@@ -2114,115 +2226,32 @@ function renderWeatherInTicker(locationKey) {
           <span class="ticker-wx-low" style="color:${getTempColor(day.low)}">${day.low}&deg;</span>
         </span>
       </div>
-    `;
-  }).join('');
-  // Duplicated for seamless scroll. Both copies carry the same onclick
-  // (clicking either resolves to the same dayIndex).
-  track.innerHTML = itemsHtml + itemsHtml;
+    `).join('');
+
+  // Single horizontal pass: start off the right edge, scroll until the
+  // whole forecast has cleared the left edge, then advance. The animation
+  // uses fill:'forwards' so a finished pass holds the track off-screen
+  // left (no flash of left-aligned content) until the next pass's first
+  // frame snaps it back off-screen right.
   requestAnimationFrame(() => {
-    const totalWidth = track.scrollWidth / 2;
-    if (!totalWidth) return;
-    const duration = Math.max(60, totalWidth / 60);
-    track.style.animationDuration = duration + 's';
-  });
-}
-
-// Build the location selector that sits above the MNV logo in the ticker
-// while weather-swap is active. Rendered as a single hamburger button
-// that opens a dropdown of the three locations; this keeps the ticker
-// chrome compact while still surfacing every option. Clicking an option
-// programmatically clicks the corresponding sidebar source tab so the
-// existing geolocation / render pipeline runs without duplication.
-function buildTickerWeatherLocations() {
-  const container = document.getElementById('tickerWeatherLocations');
-  if (!container) return;
-  const sourceTabs = Array.from(document.querySelectorAll('#weatherLocationTabs .tab-btn'));
-  const active = sourceTabs.find(t => t.classList.contains('active'));
-  const activeLabel = active ? active.textContent.trim() : 'Location';
-
-  container.innerHTML = `
-    <button class="ticker-wx-loc-toggle" aria-label="Choose weather location" aria-expanded="false" title="Choose weather location">
-      <span class="hamburger-bars" aria-hidden="true"><span></span><span></span><span></span></span>
-      <span class="ticker-wx-loc-current">${escapeHtml(activeLabel)}</span>
-    </button>
-    <div class="ticker-wx-loc-menu" role="menu" hidden></div>
-  `;
-
-  const toggleBtn = container.querySelector('.ticker-wx-loc-toggle');
-  const menuEl = container.querySelector('.ticker-wx-loc-menu');
-
-  // Populate dropdown options from the source tabs.
-  sourceTabs.forEach(src => {
-    const opt = document.createElement('button');
-    opt.className = 'ticker-wx-loc-option' + (src.classList.contains('active') ? ' active' : '');
-    opt.dataset.location = src.dataset.location;
-    opt.setAttribute('role', 'menuitem');
-    opt.textContent = src.textContent;
-    opt.addEventListener('click', () => {
-      // Delegate to the source tab (handles geolocation, render branches).
-      src.click();
-      closeTickerLocMenu();
-      syncTickerLocations();
-    });
-    menuEl.appendChild(opt);
-  });
-
-  // Toggle dropdown.
-  toggleBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = !menuEl.hidden;
-    if (isOpen) {
-      closeTickerLocMenu();
-    } else {
-      openTickerLocMenu();
-    }
-  });
-
-  // Tap-outside-to-close. Re-installs every time the menu is built
-  // (cheap; the listener no-ops when the menu is already closed).
-  document.addEventListener('click', (e) => {
-    if (menuEl.hidden) return;
-    if (container.contains(e.target)) return;
-    closeTickerLocMenu();
-  });
-}
-
-function openTickerLocMenu() {
-  const container = document.getElementById('tickerWeatherLocations');
-  if (!container) return;
-  const menuEl = container.querySelector('.ticker-wx-loc-menu');
-  const toggleBtn = container.querySelector('.ticker-wx-loc-toggle');
-  if (!menuEl || !toggleBtn) return;
-  menuEl.hidden = false;
-  toggleBtn.setAttribute('aria-expanded', 'true');
-  toggleBtn.classList.add('open');
-}
-
-function closeTickerLocMenu() {
-  const container = document.getElementById('tickerWeatherLocations');
-  if (!container) return;
-  const menuEl = container.querySelector('.ticker-wx-loc-menu');
-  const toggleBtn = container.querySelector('.ticker-wx-loc-toggle');
-  if (!menuEl || !toggleBtn) return;
-  menuEl.hidden = true;
-  toggleBtn.setAttribute('aria-expanded', 'false');
-  toggleBtn.classList.remove('open');
-}
-
-function syncTickerLocations() {
-  const container = document.getElementById('tickerWeatherLocations');
-  if (!container) return;
-  const active = document.querySelector('#weatherLocationTabs .tab-btn.active');
-  const activeLoc = active ? active.dataset.location : null;
-  const activeLabel = active ? active.textContent.trim() : 'Location';
-
-  // Update the visible label on the hamburger button.
-  const currentEl = container.querySelector('.ticker-wx-loc-current');
-  if (currentEl) currentEl.textContent = activeLabel;
-
-  // Mirror active state into the dropdown options.
-  container.querySelectorAll('.ticker-wx-loc-option').forEach(b => {
-    b.classList.toggle('active', b.dataset.location === activeLoc);
+    if (!wxCycleActive) return;
+    const Wc = content.clientWidth;
+    const Wt = track.scrollWidth;
+    const distance = Wc + Wt;
+    const duration = Math.max(6000, (distance / WX_CYCLE_PX_PER_SEC) * 1000);
+    if (wxCycleAnim) { try { wxCycleAnim.cancel(); } catch (_) {} }
+    wxCycleAnim = track.animate(
+      [
+        { transform: `translateX(${Wc}px)` },
+        { transform: `translateX(${-Wt}px)` },
+      ],
+      { duration, easing: 'linear', fill: 'forwards' }
+    );
+    wxCycleAnim.onfinish = () => {
+      if (!wxCycleActive) return;
+      wxCycleIndex = (wxCycleIndex + 1) % Math.max(1, getWeatherCycleLocations().length);
+      renderWeatherCycleLocation();
+    };
   });
 }
 
@@ -2232,7 +2261,6 @@ async function applyWeatherSwap() {
   const locationTabs = document.getElementById('weatherLocationTabs');
   const scrollArea = document.getElementById('weatherScrollArea');
   const track = document.getElementById('tickerTrack');
-  const tickerLocs = document.getElementById('tickerWeatherLocations');
 
   if (isWeatherSwapped) {
     btn.classList.add('swapped');
@@ -2257,26 +2285,18 @@ async function applyWeatherSwap() {
     // event-card markup as renderEventsSidebar().
     renderEventsIntoArea(cachedScheduleData, scrollArea);
 
-    // Put the active weather location's forecast into the ticker, and
-    // surface a location selector in the ticker-logo area so the user
-    // can switch among Chantilly / Cincinnati / Browser Location while
-    // the original sidebar tabs are hidden behind the events view.
-    const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
-    const activeLoc = activeTab ? activeTab.dataset.location : 'chantilly';
-    renderWeatherInTicker(activeLoc);
-    buildTickerWeatherLocations();
-    if (tickerLocs) tickerLocs.hidden = false;
+    // Cycle the bottom ticker through every weather location's weekly
+    // forecast, one location at a time, with the current location name
+    // shown at the top-left.
     document.body.classList.add('weather-swapped');
+    startWeatherCycle();
   } else {
     btn.classList.remove('swapped');
     titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> WEATHER';
     locationTabs.style.display = '';
 
-    // Tear down the ticker location selector and restore standard layout.
-    if (tickerLocs) {
-      tickerLocs.hidden = true;
-      tickerLocs.innerHTML = '';
-    }
+    // Stop the weather cycle and restore standard layout.
+    stopWeatherCycle();
     document.body.classList.remove('weather-swapped');
 
     // Restore weather in the sidebar and events in the ticker.

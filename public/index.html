@@ -240,11 +240,6 @@
   <!-- BOTTOM TICKER -->
   <div id="tickerBar">
     <div class="ticker-logo" id="logoArea">
-      <!-- Weather-location selector — populated and shown only when
-           weather-swap is active (body.weather-swapped). Lets the user
-           pick which location's forecast scrolls in the ticker without
-           having to toggle the swap off. -->
-      <div id="tickerWeatherLocations" class="ticker-wx-locations" hidden></div>
       <svg id="mnvLogo" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -273,12 +268,19 @@
       </svg>
     </div>
     <div class="ticker-content">
+      <!-- Current weather location label — shown at the top-left of the
+           ticker only while weather-swap is active, cycling as the
+           ticker advances through each location's weekly forecast. -->
+      <div id="tickerWeatherLabel" class="ticker-wx-label" hidden></div>
       <div class="ticker-track" id="tickerTrack">
         <span class="ticker-loading">Loading sports schedule...</span>
       </div>
     </div>
     <div class="ticker-conditions" id="currentConditions">
-      <div class="conditions-time" id="conditionsTime">--:--</div>
+      <div class="conditions-time-row">
+        <span class="conditions-time" id="conditionsTime">--:--</span>
+        <span class="conditions-date" id="conditionsDate">--</span>
+      </div>
       <div class="conditions-wx">
         <span class="conditions-icon" id="conditionsIcon"></span>
         <span class="conditions-temp" id="conditionsTemp">--&deg;</span>
