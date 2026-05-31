@@ -44,6 +44,9 @@ function setTheme(theme) {
   html.setAttribute('data-theme', theme);
   localStorage.setItem('mnv-theme', theme);
   themeToggle.querySelector('.theme-icon').textContent = theme === 'dark' ? '\u263E' : '\u2600';
+  // Label shows the action the click will perform (switch to the other mode).
+  const label = themeToggle.querySelector('.theme-label');
+  if (label) label.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
 }
 
 themeToggle.addEventListener('click', () => {
@@ -55,8 +58,9 @@ themeToggle.addEventListener('click', () => {
 setTheme(localStorage.getItem('mnv-theme') || 'dark');
 
 // --- Mobile Hamburger Menu ---
-// The hamburger is only visible on small viewports (CSS-controlled).
-// Toggling body.menu-open shows/hides the #topControls drawer.
+// Hamburger dropdown (top-right, all viewports) holding the refresh
+// options and the dark-mode toggle. Toggling body.menu-open shows/hides
+// the #topControls drawer.
 (function initMobileMenu() {
   const toggle = document.getElementById('mobileMenuToggle');
   const controls = document.getElementById('topControls');
@@ -81,31 +85,19 @@ setTheme(localStorage.getItem('mnv-theme') || 'dark');
     setOpen(false);
   });
 
-  // Close the menu after the user activates any control inside it,
-  // so they're not left staring at a drawer covering the content.
-  // Exceptions: tapping the location chip (opens its inline dropdown),
-  // typing in the search input, and clicking the reset button — those
-  // keep the drawer open so the city list stays visible.
+  // Close the drawer after the user clicks any control inside it (so it
+  // doesn't linger over the content). Deferred so the button's own
+  // handler runs first.
   controls.addEventListener('click', (e) => {
-    const target = e.target;
-    // Tapping a city result should close everything.
-    if (target.closest('.location-result-item')) {
-      setTimeout(() => setOpen(false), 0);
-      return;
-    }
-    // Anything inside the location dropdown UI (search input, etc.)
-    // should leave the drawer open.
-    if (target.closest('.location-wrapper')) return;
-    const btn = target.closest('button');
-    if (!btn) return;
+    if (!e.target.closest('button')) return;
     setTimeout(() => setOpen(false), 0);
   });
 
-  // If the viewport grows past the mobile breakpoint while the drawer
-  // is open, drop the open state so the controls render inline.
-  const mq = window.matchMedia('(max-width: 900px)');
-  mq.addEventListener?.('change', (ev) => {
-    if (!ev.matches) setOpen(false);
+  // Close on Escape for keyboard users.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('menu-open')) {
+      setOpen(false);
+    }
   });
 })();
 

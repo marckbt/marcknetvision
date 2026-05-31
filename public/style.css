@@ -66,24 +66,42 @@ html, body {
   -webkit-text-size-adjust: 100%;
 }
 
-/* ===== TOP CONTROLS ===== */
+/* ===== TOP CONTROLS =====
+   The refresh options + dark-mode toggle live in a hamburger-driven
+   dropdown anchored to the top-right, on ALL viewport sizes. #topControls
+   is the drawer panel; it's hidden until body.menu-open and opens below
+   the hamburger button. */
 #topControls {
+  position: fixed;
+  top: 56px;
+  right: 10px;
+  z-index: 1000;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px;
+  width: 220px;
+  max-width: calc(100vw - 20px);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  display: none; /* revealed by body.menu-open */
+}
+body.menu-open #topControls { display: flex; }
+#topControls button {
+  width: 100%;
+  justify-content: center;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+/* Hamburger toggle — always visible, fixed at the top-right corner. */
+#mobileMenuToggle {
+  display: inline-flex;
   position: fixed;
   top: 10px;
   right: 16px;
-  z-index: 1000;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* Mobile hamburger toggle. Hidden on desktop; the @media block below
-   reveals it and collapses #topControls into a dropdown panel. */
-#mobileMenuToggle {
-  display: none;
-  position: fixed;
-  top: 8px;
-  right: 10px;
   z-index: 1100;
   width: 40px;
   height: 40px;
@@ -97,6 +115,7 @@ html, body {
   justify-content: center;
   box-shadow: var(--card-shadow);
 }
+#mobileMenuToggle:hover { border-color: var(--accent); }
 #mobileMenuToggle:active { background: var(--bg-card-hover); }
 .hamburger-bars {
   display: inline-flex;
@@ -264,24 +283,29 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+/* Theme toggle now lives inside the hamburger drawer as a normal pill
+   row alongside the refresh buttons. */
 #themeToggle {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 50%;
-  width: 38px;
-  height: 38px;
+  border-radius: 18px;
+  padding: 6px 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
   transition: all var(--transition-speed);
   box-shadow: var(--card-shadow);
 }
 #themeToggle:hover {
   border-color: var(--accent);
+  color: var(--accent);
   box-shadow: 0 0 12px var(--accent-glow);
 }
-.theme-icon { font-size: 18px; color: var(--accent); }
+.theme-icon { font-size: 16px; color: var(--accent); }
 
 #fullAutoRefreshToggle {
   background: var(--bg-card);
@@ -2081,52 +2105,8 @@ body.weather-swapped .ticker-track {
      col-resize strip is a hostile touch target. Hide them on mobile. */
   .sidebar-resize-handle { display: none; }
 
-  /* Top controls: collapse into a hamburger-driven drawer. The drawer
-     anchors below the hamburger and slides open when body.menu-open. */
-  #mobileMenuToggle { display: inline-flex; }
-  #topControls {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    top: 56px;
-    right: 10px;
-    padding: 12px;
-    width: 240px;
-    max-width: calc(100vw - 20px);
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    /* Hidden by default; reveal when body.menu-open. */
-    display: none;
-  }
-  body.menu-open #topControls { display: flex; }
-  #topControls button {
-    width: 100%;
-    justify-content: center;
-    font-size: 12px;
-    padding: 8px 10px;
-  }
-  /* Location chip becomes a full-width button-like control. */
-  #topControls .location-wrapper { width: 100%; }
-  #topControls .browser-location {
-    display: block;
-    width: 100%;
-    padding: 8px 10px;
-    text-align: center;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--bg-secondary);
-  }
-  /* The location dropdown should drop below the location chip inside
-     the drawer, not float at the top of the viewport. */
-  #topControls .location-dropdown {
-    position: static;
-    width: 100%;
-    max-width: 100%;
-    margin-top: 6px;
-    box-sizing: border-box;
-  }
+  /* Top controls drawer is hamburger-driven on all sizes (see base
+     rules); nothing viewport-specific needed here anymore. */
 
   /* Ticker: the big logo and full conditions panel eat the entire bar
      on a 600-800px screen. Shrink them so the scrolling track survives. */
@@ -2169,14 +2149,14 @@ body.weather-swapped .ticker-track {
   .sidebar-header-row { flex-wrap: wrap; gap: 6px; }
   .sidebar-header-actions { width: 100%; justify-content: flex-start; }
 
-  /* Top controls: keep buttons reachable without spilling across the
-     whole screen. Allow them to flow to a 2nd row. */
+  /* Phone: nudge the hamburger + drawer tighter to the corner. */
+  #mobileMenuToggle { top: 6px; right: 8px; }
   #topControls {
-    top: 6px;
+    top: 52px;
     right: 8px;
     max-width: calc(100vw - 16px);
   }
-  #topControls button { font-size: 10px; padding: 4px 7px; }
+  #topControls button { font-size: 11px; padding: 7px 9px; }
 
   .content-panel { padding: 16px 14px; }
 
