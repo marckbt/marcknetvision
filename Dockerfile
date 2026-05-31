@@ -161,6 +161,7 @@ COPY <<CRON /var/spool/cron/marcknetvision
 # MarckNetVision scheduled data refresh (managed by Dockerfile)
 */30 * * * * cd ${APP_DIR} && /usr/bin/node -e "require('./weather-scraper').refreshWeather().then(()=>console.log('Weather refreshed')).catch(console.error)"  >> /var/log/${APP_NAME}-cron.log 2>&1
 */30 * * * * cd ${APP_DIR} && /usr/bin/node -e "require('./schedule-scraper').refreshSchedule().then(()=>console.log('Schedule refreshed')).catch(console.error)" >> /var/log/${APP_NAME}-cron.log 2>&1
+0 * * * * cd ${APP_DIR} && /usr/bin/node -e "require('./world-weather-scraper').refreshWorldWeather().then(()=>console.log('World weather refreshed')).catch(console.error)" >> /var/log/${APP_NAME}-cron.log 2>&1
 CRON
 
 RUN chown "${APP_USER}:${APP_USER}" "/var/spool/cron/${APP_USER}" \
@@ -221,14 +222,16 @@ NGINXCONF
 VOLUME ["/etc/letsencrypt"]
 
 # ---------------------------------------------------------------------------
-# Step 7: Generate initial weather + schedule data so the first request
-#   the container serves isn't an empty page. Non-fatal if the network is
-#   unavailable at build time; the cron jobs will catch up at runtime.
+# Step 7: Generate initial weather + schedule + world-weather data so the
+#   first request the container serves isn't an empty page. Non-fatal if the
+#   network is unavailable at build time; the cron jobs will catch up at
+#   runtime.
 # ---------------------------------------------------------------------------
 RUN runuser -u "${APP_USER}" -- bash -c "\
         cd '${APP_DIR}' && \
         node -e \"require('./weather-scraper').refreshWeather().then(()=>console.log('Weather ok')).catch(e=>{console.error(e.message);process.exit(0)})\" && \
-        node -e \"require('./schedule-scraper').refreshSchedule().then(()=>console.log('Schedule ok')).catch(e=>{console.error(e.message);process.exit(0)})\" \
+        node -e \"require('./schedule-scraper').refreshSchedule().then(()=>console.log('Schedule ok')).catch(e=>{console.error(e.message);process.exit(0)})\" && \
+        node -e \"require('./world-weather-scraper').refreshWorldWeather().then(()=>console.log('World weather ok')).catch(e=>{console.error(e.message);process.exit(0)})\" \
     " || echo "[build] initial data fetch skipped (no network) — cron will populate at runtime"
 
 # ---------------------------------------------------------------------------
