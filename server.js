@@ -7,6 +7,7 @@ const fs = require('fs');
 
 const { refreshWeather, fetchNWSAlerts } = require('./weather-scraper');
 const { refreshSchedule } = require('./schedule-scraper');
+const { refreshWorldWeather } = require('./world-weather-scraper');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -303,15 +304,16 @@ app.post('/api/refresh', async (req, res) => {
   // on refresh without a server restart.
   FEED_CATEGORIES.Reddit = loadRedditFeeds();
 
-  // Refresh weather and schedule in parallel
+  // Refresh weather, schedule, and world weather in parallel
   const results = await Promise.allSettled([
     refreshWeather().then(() => console.log('[Refresh] Weather data updated')),
     refreshSchedule().then(() => console.log('[Refresh] Schedule data updated')),
+    refreshWorldWeather().then(() => console.log('[Refresh] World weather updated')),
   ]);
 
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      const name = i === 0 ? 'Weather' : 'Schedule';
+      const name = ['Weather', 'Schedule', 'World weather'][i] || 'Task';
       console.error(`[Refresh] ${name} refresh failed:`, r.reason?.message);
     }
   });
@@ -393,6 +395,16 @@ app.get('/api/weather', (req, res) => {
     res.json(JSON.parse(fs.readFileSync(weatherPath, 'utf8')));
   } else {
     res.status(404).json({ error: 'Weather data not yet generated' });
+  }
+});
+
+// API: World weather (today's forecast for major world cities)
+app.get('/api/world-weather', (req, res) => {
+  const p = path.join(__dirname, 'public', 'data', 'world-weather.json');
+  if (fs.existsSync(p)) {
+    res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
+  } else {
+    res.status(404).json({ error: 'World weather data not yet generated' });
   }
 });
 

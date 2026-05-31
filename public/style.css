@@ -233,7 +233,8 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   font-size: 11px;
 }
 
-#refreshAll {
+#refreshAll,
+#refreshRss {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 18px;
@@ -248,12 +249,14 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   transition: all var(--transition-speed);
   box-shadow: var(--card-shadow);
 }
-#refreshAll:hover {
+#refreshAll:hover,
+#refreshRss:hover {
   border-color: var(--accent);
   color: var(--accent);
   box-shadow: 0 0 12px var(--accent-glow);
 }
-#refreshAll.refreshing .refresh-icon {
+#refreshAll.refreshing .refresh-icon,
+#refreshRss.refreshing .refresh-icon {
   animation: spin 0.8s linear infinite;
 }
 .refresh-icon { font-size: 16px; }
@@ -305,35 +308,6 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   color: #10b981;
 }
 #fullAutoRefreshToggle.auto-on .full-auto-status {
-  color: #10b981;
-  font-weight: 700;
-}
-
-#autoRefreshToggle {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  padding: 6px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all var(--transition-speed);
-  box-shadow: var(--card-shadow);
-}
-#autoRefreshToggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
-}
-#autoRefreshToggle.auto-on {
-  border-color: #10b981;
-  color: #10b981;
-}
-#autoRefreshToggle.auto-on .auto-status {
   color: #10b981;
   font-weight: 700;
 }
@@ -880,6 +854,54 @@ body.weather-swapped .ticker-track {
   font-weight: 600;
   /* color set dynamically via getTempColor() */
 }
+
+/* ===== WORLD WEATHER ===== */
+/* World cards are not clickable (today-only, no detail view), so drop
+   the pointer affordance the base .weather-day-card carries. */
+.world-city-card { cursor: default; }
+.world-city-card:hover { border-color: transparent; background: var(--bg-card); }
+.world-country {
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10px;
+}
+/* Sidebar region grouping. */
+.world-region-group { margin-bottom: 10px; }
+.world-region-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  padding: 4px 2px 6px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-sidebar);
+  z-index: 1;
+}
+.world-city-card.compact { padding: 7px 10px; gap: 8px; margin-bottom: 4px; }
+.world-city-card.compact .wx-icon { width: 30px; height: 30px; }
+
+/* Main panel: region sections with a responsive card grid. */
+.world-panel-region { margin-bottom: 24px; }
+.world-panel-region-title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+.world-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.world-panel-grid .world-city-card { margin-bottom: 0; }
 
 .pivotal-card {
   padding: 12px;

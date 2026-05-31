@@ -1,0 +1,89 @@
+{
+  "regions": [
+    {
+      "region": "South Asia",
+      "countries": [
+        { "rank": 1, "country": "India", "city": "Mumbai" },
+        { "rank": 5, "country": "Pakistan", "city": "Karachi" },
+        { "rank": 8, "country": "Bangladesh", "city": "Dhaka" },
+        { "rank": 16, "country": "Iran", "city": "Tehran" },
+        { "rank": 37, "country": "Afghanistan", "city": "Kabul" },
+        { "rank": 46, "country": "Nepal", "city": "Kathmandu" }
+      ]
+    },
+    {
+      "region": "East & Southeast Asia",
+      "countries": [
+        { "rank": 2, "country": "China", "city": "Beijing" },
+        { "rank": 4, "country": "Indonesia", "city": "Jakarta" },
+        { "rank": 13, "country": "Philippines", "city": "Manila" },
+        { "rank": 15, "country": "Vietnam", "city": "Ho Chi Minh City" },
+        { "rank": 19, "country": "Thailand", "city": "Bangkok" },
+        { "rank": 24, "country": "Myanmar", "city": "Yangon" },
+        { "rank": 27, "country": "South Korea", "city": "Seoul" }
+      ]
+    },
+    {
+      "region": "Sub-Saharan Africa",
+      "countries": [
+        { "rank": 6, "country": "Nigeria", "city": "Lagos" },
+        { "rank": 10, "country": "Ethiopia", "city": "Addis Ababa" },
+        { "rank": 12, "country": "DR Congo", "city": "Kinshasa" },
+        { "rank": 23, "country": "South Africa", "city": "Johannesburg" },
+        { "rank": 25, "country": "Kenya", "city": "Nairobi" }
+      ]
+    },
+    {
+      "region": "Middle East & North Africa",
+      "countries": [
+        { "rank": 14, "country": "Egypt", "city": "Cairo" },
+        { "rank": 30, "country": "Algeria", "city": "Algiers" },
+        { "rank": 32, "country": "Iraq", "city": "Baghdad" },
+        { "rank": 35, "country": "Morocco", "city": "Casablanca" },
+        { "rank": 38, "country": "Saudi Arabia", "city": "Riyadh" },
+        { "rank": 43, "country": "Yemen", "city": "Sanaa" }
+      ]
+    },
+    {
+      "region": "Europe",
+      "countries": [
+        { "rank": 9, "country": "Russia", "cities": ["Moscow"] },
+        { "rank": 18, "country": "Germany", "cities": ["Berlin", "Frankfurt"] },
+        { "rank": 20, "country": "United Kingdom", "cities": ["London"] },
+        { "rank": 22, "country": "France", "cities": ["Paris"] },
+        { "rank": 31, "country": "Spain", "cities": ["Madrid"] },
+        { "rank": 33, "country": "Ukraine", "cities": ["Kyiv"] }
+      ]
+    },
+    {
+      "region": "Latin America & Caribbean",
+      "countries": [
+        { "rank": 7, "country": "Brazil", "city": "São Paulo" },
+        { "rank": 11, "country": "Mexico", "city": "Mexico City" },
+        { "rank": 26, "country": "Colombia", "city": "Bogotá" },
+        { "rank": 32, "country": "Argentina", "city": "Buenos Aires" },
+        { "rank": 44, "country": "Peru", "city": "Lima" },
+        { "rank": 47, "country": "Venezuela", "city": "Caracas" }
+      ]
+    },
+    {
+      "region": "Central Asia",
+      "countries": [
+        { "rank": 48, "country": "Uzbekistan", "city": "Tashkent" }
+      ]
+    },
+    {
+      "region": "North America",
+      "countries": [
+        { "rank": 3, "country": "United States", "cities": ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix"] },
+        { "rank": 36, "country": "Canada", "cities": ["Toronto", "Vancouver", "Montreal", "Calgary"] }
+      ]
+    },
+    {
+      "region": "Oceania",
+      "countries": [
+        { "rank": 50, "country": "Australia", "city": "Sydney" }
+      ]
+    }
+  ]
+}

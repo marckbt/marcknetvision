@@ -407,7 +407,20 @@ function setupWeatherTabs() {
       // cycles through every location automatically, so there's nothing
       // to do here. Only handle tab clicks in normal (non-swap) mode.
       if (isWeatherSwapped) return;
-      if (loc === 'pivotal') {
+
+      // Leaving the World view → restore the normal sports-events ticker
+      // (World takes the ticker over while it's active).
+      if (isWorldWeatherActive && loc !== 'world') {
+        isWorldWeatherActive = false;
+        renderTicker(cachedScheduleData);
+        if (document.getElementById('worldWeatherPanel')?.classList.contains('active')) {
+          showPanel('welcomeScreen');
+        }
+      }
+
+      if (loc === 'world') {
+        selectWorldWeather();
+      } else if (loc === 'pivotal') {
         renderPivotalSidebar();
       } else if (loc === 'browserLocation') {
         renderBrowserLocationWeather();
@@ -526,6 +539,130 @@ function renderWeatherSidebar(locationKey) {
     </div>`
   ).join('');
   scrollArea.innerHTML = alertsHtml + daysHtml;
+}
+
+// ===== World Weather =====
+// "World" weather location: today's forecast for each major-world city
+// from countries_by_region.json (served via /api/world-weather). When
+// the World tab is selected it renders into the weather sidebar (compact
+// region-grouped list), the main content panel (full region grid), and
+// the bottom ticker (scrolling one-line summaries).
+let worldWeatherData = null;
+let isWorldWeatherActive = false;
+
+async function loadWorldWeather() {
+  if (worldWeatherData) return worldWeatherData;
+  try {
+    const res = await fetch('/api/world-weather');
+    worldWeatherData = await res.json();
+  } catch (e) {
+    console.error('[WorldWeather] Failed to fetch:', e);
+    worldWeatherData = null;
+  }
+  return worldWeatherData;
+}
+
+// Entry point when the "World" weather tab is clicked.
+async function selectWorldWeather() {
+  isWorldWeatherActive = true;
+  const scrollArea = document.getElementById('weatherScrollArea');
+  scrollArea.innerHTML = '<div class="loading-spinner">Loading world forecasts...</div>';
+
+  await loadWorldWeather();
+  if (!worldWeatherData || !Array.isArray(worldWeatherData.regions)) {
+    scrollArea.innerHTML = '<div class="loading-spinner">World weather unavailable</div>';
+    return;
+  }
+
+  renderWorldWeatherSidebar();
+  renderWorldWeatherPanel();
+  renderWorldWeatherInTicker();
+  showPanel('worldWeatherPanel');
+}
+
+// One small forecast card's inner markup, shared by the sidebar and the
+// main panel. `compact` trims it for the narrow sidebar.
+function worldCityCard(c, compact) {
+  const hi = c.high != null ? `${c.high}&deg;` : '--';
+  const lo = c.low != null ? `${c.low}&deg;` : '--';
+  const hiColor = c.high != null ? getTempColor(c.high) : 'var(--text-muted)';
+  const loColor = c.low != null ? getTempColor(c.low) : 'var(--text-muted)';
+  return `
+    <div class="weather-day-card world-city-card${compact ? ' compact' : ''}">
+      <div class="wx-icon">${getWxIcon(c.condition)}</div>
+      <div class="wx-info">
+        <div class="wx-day">${escapeHtml(c.city)}<span class="world-country"> · ${escapeHtml(c.country)}</span></div>
+        <div class="wx-desc">${escapeHtml(c.condition)}</div>
+      </div>
+      <div class="wx-temps">
+        <div class="wx-high" style="color:${hiColor}">${hi}</div>
+        <div class="wx-low" style="color:${loColor}">${lo}</div>
+      </div>
+    </div>`;
+}
+
+function renderWorldWeatherSidebar() {
+  const scrollArea = document.getElementById('weatherScrollArea');
+  if (!worldWeatherData) return;
+  scrollArea.innerHTML = worldWeatherData.regions.map(r => `
+    <div class="world-region-group">
+      <div class="world-region-label">${escapeHtml(r.region)}</div>
+      ${r.cities.map(c => worldCityCard(c, true)).join('')}
+    </div>
+  `).join('');
+}
+
+function renderWorldWeatherPanel() {
+  const content = document.getElementById('worldWeatherContent');
+  if (!content || !worldWeatherData) return;
+  const updated = worldWeatherData.lastUpdated
+    ? new Date(worldWeatherData.lastUpdated).toLocaleString()
+    : '';
+  content.innerHTML = `
+    <h2><span class="wx-detail-icon">${getWxIcon('Sunny')}</span> World Weather — Today</h2>
+    <p class="wx-detail-subtitle">Today's forecast for major cities${updated ? ` · updated ${escapeHtml(updated)}` : ''}</p>
+    ${worldWeatherData.regions.map(r => `
+      <div class="world-panel-region">
+        <h3 class="world-panel-region-title">${escapeHtml(r.region)}</h3>
+        <div class="world-panel-grid">
+          ${r.cities.map(c => worldCityCard(c, false)).join('')}
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderWorldWeatherInTicker() {
+  const track = document.getElementById('tickerTrack');
+  if (!track || !worldWeatherData) return;
+  // Flatten all cities across regions into a single scrolling sequence.
+  const cities = worldWeatherData.regions.flatMap(r => r.cities);
+  if (!cities.length) {
+    track.innerHTML = '<span class="ticker-loading">No world weather</span>';
+    return;
+  }
+  const itemsHtml = cities.map(c => {
+    const hi = c.high != null ? `${c.high}&deg;` : '--';
+    const lo = c.low != null ? `${c.low}&deg;` : '--';
+    return `
+      <div class="ticker-item ticker-wx-item">
+        <span class="ticker-wx-icon">${getWxIcon(c.condition)}</span>
+        <span class="ticker-wx-day">${escapeHtml(c.city)}</span>
+        <span class="ticker-wx-cond">${escapeHtml(c.condition)}</span>
+        <span class="ticker-wx-temps">
+          <span class="ticker-wx-high" style="color:${c.high != null ? getTempColor(c.high) : 'inherit'}">${hi}</span>
+          /
+          <span class="ticker-wx-low" style="color:${c.low != null ? getTempColor(c.low) : 'inherit'}">${lo}</span>
+        </span>
+      </div>`;
+  }).join('');
+  track.innerHTML = itemsHtml + itemsHtml; // duplicate for seamless scroll
+  requestAnimationFrame(() => {
+    const totalWidth = track.scrollWidth / 2;
+    if (!totalWidth) return;
+    const duration = Math.max(60, totalWidth / 60);
+    track.style.animationDuration = duration + 's';
+  });
 }
 
 // ===== NWS Weather Alerts =====
@@ -1094,6 +1231,9 @@ function buildEventWatch(item) {
 }
 
 function renderTicker(items) {
+  // While the World weather view owns the ticker, don't let a schedule
+  // load/refresh overwrite it with sports events.
+  if (isWorldWeatherActive) { renderWorldWeatherInTicker(); return; }
   const track = document.getElementById('tickerTrack');
   const sorted = sortEvents(items);
   if (!sorted.length) {
@@ -1240,69 +1380,27 @@ document.getElementById('refreshAll').addEventListener('click', async () => {
   window.matchMedia('(max-width: 900px)').addEventListener?.('change', applySavedWidths);
 })();
 
-// --- Auto Refresh ---
-let autoRefreshInterval = null;
-let autoRefreshCountdown = null;
-let autoRefreshSecondsLeft = 0;
-const AUTO_REFRESH_MS = 10 * 60 * 1000; // 10 minutes
-const AUTO_REFRESH_SECS = AUTO_REFRESH_MS / 1000;
-
-function formatCountdown(totalSeconds) {
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return m + ':' + String(s).padStart(2, '0');
-}
-
-function setAutoRefresh(enabled) {
-  const btn = document.getElementById('autoRefreshToggle');
-  const status = btn.querySelector('.auto-status');
-
-  // Clear any existing timers
-  if (autoRefreshInterval) { clearInterval(autoRefreshInterval); autoRefreshInterval = null; }
-  if (autoRefreshCountdown) { clearInterval(autoRefreshCountdown); autoRefreshCountdown = null; }
-
-  if (enabled) {
-    autoRefreshSecondsLeft = AUTO_REFRESH_SECS;
-    status.textContent = formatCountdown(autoRefreshSecondsLeft);
-    btn.classList.add('auto-on');
-    localStorage.setItem('mnv-auto-refresh', '1');
-
-    // Countdown ticker every second
-    autoRefreshCountdown = setInterval(() => {
-      autoRefreshSecondsLeft--;
-      if (autoRefreshSecondsLeft <= 0) {
-        autoRefreshSecondsLeft = AUTO_REFRESH_SECS;
-        // Refresh only the news feeds in place — no page reload. The
-        // Full Auto-Refresh (1h) still does a full browser reload; this
-        // one is intentionally lighter so the user's scroll position,
-        // open panels, and selected tab survive the refresh.
-        (async () => {
-          console.log('[AutoRefresh] Refreshing news feeds...');
-          allNewsData = {};
-          const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
-          const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
-          await loadNewsCategory(activeCategory, true);
-        })();
-      }
-      status.textContent = formatCountdown(autoRefreshSecondsLeft);
-    }, 1000);
-  } else {
-    status.textContent = 'OFF';
-    btn.classList.remove('auto-on');
-    localStorage.setItem('mnv-auto-refresh', '0');
+// --- Manual RSS Refresh ---
+// Refreshes only the news feeds (active category), in place, with no
+// page reload — so the user's scroll position, open panels, and
+// selected tab survive. This replaces the old 10-minute auto-refresh.
+document.getElementById('refreshRss').addEventListener('click', async () => {
+  const btn = document.getElementById('refreshRss');
+  btn.classList.add('refreshing');
+  btn.disabled = true;
+  try {
+    console.log('[RefreshRSS] Refreshing news feeds...');
+    allNewsData = {};
+    const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
+    const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
+    await loadNewsCategory(activeCategory, true);
+  } catch (e) {
+    console.error('[RefreshRSS] Failed:', e);
+  } finally {
+    btn.classList.remove('refreshing');
+    btn.disabled = false;
   }
-}
-
-document.getElementById('autoRefreshToggle').addEventListener('click', () => {
-  // autoRefreshCountdown is the live "on" indicator (autoRefreshInterval
-  // is vestigial and never set, which is why the toggle never turned off).
-  setAutoRefresh(!autoRefreshCountdown);
 });
-
-// Restore auto-refresh state
-if (localStorage.getItem('mnv-auto-refresh') === '1') {
-  setAutoRefresh(true);
-}
 
 // --- Auto-Scroll Left Panel (matches ticker speed, cycles categories at bottom) ---
 // Ticker anim: 120s for 50% of track, ~20 px/sec perceptual. Match with vertical scroll.
@@ -2150,7 +2248,14 @@ function getWeatherCycleLocations() {
   tabs.forEach(t => {
     const key = t.dataset.location;
     if (key === 'pivotal') return;
-    if (key === 'browserLocation') {
+    if (key === 'world') {
+      // World is a special multi-city entry: today's forecast for every
+      // major world city, scrolled as a single pass before advancing.
+      if (worldWeatherData && Array.isArray(worldWeatherData.regions)) {
+        const cities = worldWeatherData.regions.flatMap(r => r.cities);
+        if (cities.length) list.push({ key, name: 'World', isWorld: true, cities });
+      }
+    } else if (key === 'browserLocation') {
       if (browserLocationWeather && browserLocationWeather.daily?.length) {
         list.push({ key, name: (browserLocationWeather.name || t.textContent.trim()), source: browserLocationWeather });
       }
@@ -2211,22 +2316,44 @@ function renderWeatherCycleLocation() {
   // Top-left location label (with vertical slide).
   setTickerWeatherLabel(loc.name);
 
-  const onClickFor = loc.key === 'browserLocation'
-    ? (i) => `showBrowserLocationDetail(${i})`
-    : (i) => `showWeatherDetail('${loc.key}', ${i})`;
+  if (loc.isWorld) {
+    // World: scroll today's forecast for every major world city in a
+    // single pass (city name in place of the day-of-week slot).
+    track.innerHTML = loc.cities.map(c => {
+      const hi = c.high != null ? `${c.high}&deg;` : '--';
+      const lo = c.low != null ? `${c.low}&deg;` : '--';
+      const hiColor = c.high != null ? getTempColor(c.high) : 'inherit';
+      const loColor = c.low != null ? getTempColor(c.low) : 'inherit';
+      return `
+        <div class="ticker-item ticker-wx-item">
+          <span class="ticker-wx-icon">${getWxIcon(c.condition)}</span>
+          <span class="ticker-wx-day">${escapeHtml(c.city)}<span class="ticker-wx-date"> ${escapeHtml(c.country)}</span></span>
+          <span class="ticker-wx-cond">${escapeHtml(c.condition)}</span>
+          <span class="ticker-wx-temps">
+            <span class="ticker-wx-high" style="color:${hiColor}">${hi}</span>
+            /
+            <span class="ticker-wx-low" style="color:${loColor}">${lo}</span>
+          </span>
+        </div>`;
+    }).join('');
+  } else {
+    const onClickFor = loc.key === 'browserLocation'
+      ? (i) => `showBrowserLocationDetail(${i})`
+      : (i) => `showWeatherDetail('${loc.key}', ${i})`;
 
-  track.innerHTML = loc.source.daily.map((day, i) => `
-      <div class="ticker-item ticker-wx-item ticker-wx-item-clickable" onclick="${onClickFor(i)}">
-        <span class="ticker-wx-icon">${getWxIcon(day.condition)}</span>
-        <span class="ticker-wx-day">${escapeHtml(day.dayName)} <span class="ticker-wx-date">${escapeHtml(day.date)}</span></span>
-        <span class="ticker-wx-cond">${escapeHtml(day.condition)}</span>
-        <span class="ticker-wx-temps">
-          <span class="ticker-wx-high" style="color:${getTempColor(day.high)}">${day.high}&deg;</span>
-          /
-          <span class="ticker-wx-low" style="color:${getTempColor(day.low)}">${day.low}&deg;</span>
-        </span>
-      </div>
-    `).join('');
+    track.innerHTML = loc.source.daily.map((day, i) => `
+        <div class="ticker-item ticker-wx-item ticker-wx-item-clickable" onclick="${onClickFor(i)}">
+          <span class="ticker-wx-icon">${getWxIcon(day.condition)}</span>
+          <span class="ticker-wx-day">${escapeHtml(day.dayName)} <span class="ticker-wx-date">${escapeHtml(day.date)}</span></span>
+          <span class="ticker-wx-cond">${escapeHtml(day.condition)}</span>
+          <span class="ticker-wx-temps">
+            <span class="ticker-wx-high" style="color:${getTempColor(day.high)}">${day.high}&deg;</span>
+            /
+            <span class="ticker-wx-low" style="color:${getTempColor(day.low)}">${day.low}&deg;</span>
+          </span>
+        </div>
+      `).join('');
+  }
 
   // Single horizontal pass: start off the right edge, scroll until the
   // whole forecast has cleared the left edge, then advance. The animation
@@ -2285,9 +2412,14 @@ async function applyWeatherSwap() {
     // event-card markup as renderEventsSidebar().
     renderEventsIntoArea(cachedScheduleData, scrollArea);
 
+    // Make sure World data is available so it's included in the cycle.
+    // Fire-and-forget — the cycle re-reads the location list each pass,
+    // so World appears as soon as its data lands.
+    loadWorldWeather();
+
     // Cycle the bottom ticker through every weather location's weekly
-    // forecast, one location at a time, with the current location name
-    // shown at the top-left.
+    // forecast (and World's all-cities pass), one location at a time,
+    // with the current location name shown at the top-left.
     document.body.classList.add('weather-swapped');
     startWeatherCycle();
   } else {

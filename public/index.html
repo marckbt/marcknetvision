@@ -25,8 +25,8 @@
     <button id="fullAutoRefreshToggle" title="Toggle full auto-refresh (1 hour)">
       Auto-Full Refresh <span class="full-auto-status">OFF</span>
     </button>
-    <button id="autoRefreshToggle" title="Toggle auto-refresh (10 min)">
-      Auto-Refresh RSS <span class="auto-status">OFF</span>
+    <button id="refreshRss" title="Refresh RSS news feeds now">
+      <span class="refresh-icon">&#8635;</span> Refresh RSS
     </button>
     <button id="themeToggle" title="Toggle theme">
       <span class="theme-icon">&#9790;</span>
@@ -79,6 +79,7 @@
             <button class="tab-btn active" data-location="chantilly">Chantilly, VA</button>
             <button class="tab-btn" data-location="cincinnati">Cincinnati, OH</button>
             <button class="tab-btn" data-location="browserLocation">Browser Location</button>
+            <button class="tab-btn" data-location="world">World</button>
             <!-- Pivotal WX tab hidden for now, code preserved -->
             <!-- <button class="tab-btn" data-location="pivotal">Pivotal WX</button> -->
           </div>
@@ -232,6 +233,11 @@
             <h2>Weatherscan Live</h2>
             <iframe id="weatherscanFrame" src="" style="width:100%;height:calc(100vh - 160px);border:none;border-radius:8px;" allowfullscreen></iframe>
           </div>
+        </div>
+
+        <div id="worldWeatherPanel" class="content-panel">
+          <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
+          <div id="worldWeatherContent"></div>
         </div>
       </div>
     </main>
