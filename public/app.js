@@ -447,10 +447,35 @@ const WX_NIGHT_FROM_DAY = {
   'Partly-Cloudy.gif': 'Partly-Clear.gif',
 };
 
+// Expand Weather.com's abbreviated short-phrase conditions (used by the
+// World forecast — e.g. "P Cloudy", "Iso T-Storms", "M Sunny", "Sct
+// T-Storms") into the full phrases the icon matcher below understands.
+// Safe to run on already-full phrases (NWS/WU long form) — they pass
+// through unchanged.
+function normalizeConditionPhrase(condition) {
+  let s = (condition || '').toLowerCase();
+  // Thunderstorm / shower shorthand (hyphenated or not) → full words.
+  s = s.replace(/\bt-?storms?\b/g, 'thunderstorm');
+  s = s.replace(/\btstms?\b/g, 'thunderstorm');
+  s = s.replace(/\bshwrs?\b/g, 'showers');
+  // Whole-token coverage / intensity abbreviations.
+  const abbr = {
+    p: 'partly', m: 'mostly', mt: 'mostly',
+    iso: 'isolated', sct: 'scattered', sctd: 'scattered',
+    num: 'numerous', wide: 'widespread',
+    lt: 'light', hvy: 'heavy', fz: 'freezing',
+    wndy: 'windy', wnd: 'wind',
+  };
+  s = s.replace(/\b[a-z]+\b/g, (w) => abbr[w] || w);
+  // "Clouds" (e.g. "AM Clouds") → "cloudy" so it hits the cloud checks.
+  s = s.replace(/\bclouds\b/g, 'cloudy');
+  return s;
+}
+
 // Pick the best-matching retro icon filename for a condition string.
 // Returns just the filename — caller decides day/night and wraps in <img>.
 function pickWxIconFile(condition) {
-  const lower = (condition || '').toLowerCase();
+  const lower = normalizeConditionPhrase(condition);
 
   // Thunderstorms (check before rain/snow)
   if (lower.includes('thundersnow')) return 'ThunderSnow.gif';

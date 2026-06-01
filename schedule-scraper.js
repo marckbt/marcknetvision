@@ -305,25 +305,23 @@ async function fetchTeamLiquidSC2() {
           const type = (typeof ev.type === 'string' ? ev.type : ev.type?._ || '').trim();
           if (!/starcraft\s*2/i.test(type)) continue;
 
-          // TL calendar hours are +12 from Eastern
+          // The TL calendar XML expresses event times in KST (Korea
+          // Standard Time, UTC+9) — TeamLiquid's historical default. So a
+          // wall-clock time of (year,month,day,hour,minute) in the feed is
+          // (hour-9) UTC. Verified against the European "WardiTV Mondays"
+          // weekly: hour=1 => 01:00 KST => Mon 18:00 CEST, the correct
+          // EU Monday-evening slot (UTC would wrongly give Tue 03:00 CEST).
+          //
+          // We build the absolute instant with Date.UTC and a -9h shift so
+          // the result is independent of the server's own timezone. (The
+          // old code applied a -12h fudge AND constructed a local-time
+          // Date, which drifted depending on where the server ran.)
+          const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
           const hour = parseInt(ev.$.hour || '0');
           const minute = parseInt(ev.$.minute || '0');
-
-          // Convert: subtract 12 hours for Eastern Time
-          let etHour = hour - 12;
-          let etDay = dayNum;
-          let etMonth = monthNum;
-          if (etHour < 0) {
-            etHour += 24;
-            etDay -= 1;
-            if (etDay < 1) {
-              etMonth -= 1;
-              etDay = 28; // approximate
-            }
-          }
-
-          // Build date for comparison
-          const eventDate = new Date(yearNum, etMonth - 1, etDay, etHour, minute);
+          const eventDate = new Date(
+            Date.UTC(yearNum, monthNum - 1, dayNum, hour, minute) - KST_OFFSET_MS
+          );
 
           // Check if within next 24 hours
           // Keep SC2 events visible until 5 hours past their start time.

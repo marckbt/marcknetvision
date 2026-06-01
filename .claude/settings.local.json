@@ -43,7 +43,9 @@
       "Bash(node -c \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/public/app.js\")",
       "Bash(node -c server.js)",
       "Bash(which docker *)",
-      "Bash(docker version *)"
+      "Bash(docker version *)",
+      "Bash(node -c schedule-scraper.js)",
+      "Bash(TZ=__TRACKED_VAR__ node -e ' *)"
     ]
   }
 }
