@@ -57,12 +57,18 @@ ARG APP_USER=marcknetvision
 ARG APP_DIR=/opt/marcknetvision
 ARG APP_PORT=3000
 ARG NODE_MAJOR=20
+# Optional explicit cache-busting id for static assets (app.js/style.css).
+# Leave empty to let the server derive one from the files' mtimes at boot
+# (which already changes on every rebuild). Pass a git SHA for determinism:
+#   docker build --build-arg BUILD_ID=$(git rev-parse --short HEAD) .
+ARG BUILD_ID=""
 
 ENV APP_NAME=${APP_NAME} \
     APP_DIR=${APP_DIR} \
     APP_PORT=${APP_PORT} \
     NODE_ENV=production \
-    PORT=${APP_PORT}
+    PORT=${APP_PORT} \
+    BUILD_ID=${BUILD_ID}
 
 # ---------------------------------------------------------------------------
 # Step 1: Base packages + Node.js 20 (NodeSource RPM repo)
@@ -134,6 +140,7 @@ Restart=on-failure
 RestartSec=10
 Environment=PORT=${APP_PORT}
 Environment=NODE_ENV=production
+Environment=BUILD_ID=${BUILD_ID}
 
 StandardOutput=journal
 StandardError=journal

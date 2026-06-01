@@ -41,7 +41,9 @@
       "Bash(node -e ' *)",
       "Bash(node -e \"console.log\\(new Date\\('2026-04-27T22:10Z'\\).toISOString\\(\\)\\); console.log\\(new Date\\('2026-04-27T10:00:00.000Z'\\).toISOString\\(\\)\\);\")",
       "Bash(node -c \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/public/app.js\")",
-      "Bash(node -c server.js)"
+      "Bash(node -c server.js)",
+      "Bash(which docker *)",
+      "Bash(docker version *)"
     ]
   }
 }

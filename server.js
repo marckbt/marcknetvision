@@ -200,6 +200,64 @@ function loadRedditFeeds() {
   }
 }
 
+// --- Build version for cache-busting ---------------------------------------
+// The biggest cause of "my changes aren't deploying" is a browser or CDN
+// serving a stale app.js / style.css after a new image is built. We stamp
+// those asset URLs in index.html with ?v=<BUILD_ID>, where BUILD_ID is the
+// newest mtime of the front-end files. A fresh Docker build re-COPYs those
+// files with new mtimes, so BUILD_ID changes and every client is forced to
+// re-fetch them. Override with the BUILD_ID env var if you prefer a git SHA.
+function computeBuildId() {
+  let newest = 0;
+  for (const f of ['public/app.js', 'public/style.css', 'public/index.html']) {
+    try { newest = Math.max(newest, fs.statSync(path.join(__dirname, f)).mtimeMs); }
+    catch (_) { /* ignore missing file */ }
+  }
+  return newest ? String(Math.floor(newest)) : String(Date.now());
+}
+const BUILD_ID = process.env.BUILD_ID || computeBuildId();
+const SERVER_STARTED_AT = new Date().toISOString();
+console.log(`[Server] Asset build id: ${BUILD_ID}`);
+
+// Serve index.html with cache-busted asset URLs and a no-cache header on
+// the HTML document itself, so a new deploy is always picked up. Registered
+// BEFORE express.static so it wins for "/" and "/index.html".
+function serveIndex(req, res) {
+  fs.readFile(path.join(__dirname, 'public', 'index.html'), 'utf8', (err, html) => {
+    if (err) return res.status(500).send('index.html not found');
+    const out = html
+      .replace('href="style.css"', `href="style.css?v=${BUILD_ID}"`)
+      .replace('src="app.js"', `src="app.js?v=${BUILD_ID}"`);
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.type('html').send(out);
+  });
+}
+app.get('/', serveIndex);
+app.get('/index.html', serveIndex);
+
+// Version / feature probe — hit this to confirm which build is actually
+// running inside the container (bypasses all browser caching):
+//   curl http://localhost:3000/api/version
+// `features` are computed by inspecting the live files on disk, so they
+// reflect exactly what this process is serving.
+app.get('/api/version', (req, res) => {
+  const has = (file, needle) => {
+    try { return fs.readFileSync(path.join(__dirname, file), 'utf8').includes(needle); }
+    catch (_) { return false; }
+  };
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    buildId: BUILD_ID,
+    startedAt: SERVER_STARTED_AT,
+    features: {
+      worldWeather: has('public/index.html', 'data-location="world"') &&
+                    fs.existsSync(path.join(__dirname, 'world-weather-scraper.js')),
+      hamburgerMenu: has('public/index.html', 'id="mobileMenuToggle"'),
+      cacheBusting: true,
+    },
+  });
+});
+
 app.use(express.static('public'));
 app.use('/archive', express.static('Archive'));
 
