@@ -82,7 +82,7 @@
     {
       "region": "Oceania",
       "countries": [
-        { "rank": 50, "country": "Australia", "city": "Sydney" }
+        { "rank": 50, "country": "Australia", "cities": ["Sydney","Alice Springs","Perth"] }
       ]
     }
   ]
