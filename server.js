@@ -37,6 +37,19 @@ function isRedditUrl(url) {
 }
 async function fetchAndParseFeed(url) {
   if (isRedditUrl(url)) {
+    const xml = await fetchRedditXml(url);
+    return parser.parseString(xml);
+  }
+  return parser.parseURL(url);
+}
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Fetch a reddit URL as text, retrying on HTTP 429/403 (rate limited /
+// throttled) with a backoff that respects the Retry-After header when
+// present. Reddit returns both codes when it's throttling an IP.
+async function fetchRedditXml(url, retries = 1) {
+  for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, {
       timeout: 15000,
       headers: {
@@ -44,11 +57,109 @@ async function fetchAndParseFeed(url) {
         'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
       },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml = await res.text();
-    return parser.parseString(xml);
+    if (res.ok) return res.text();
+    if ((res.status === 429 || res.status === 403) && attempt < retries) {
+      const ra = parseInt(res.headers.get('retry-after') || '', 10);
+      const waitMs = Number.isFinite(ra) ? ra * 1000 : 2000 * (attempt + 1);
+      await sleep(waitMs);
+      continue;
+    }
+    throw new Error(`HTTP ${res.status}`);
   }
-  return parser.parseURL(url);
+}
+
+// Reddit rate-limits per-IP aggressively, so fetching 100+ subreddit RSS
+// feeds individually trips HTTP 429 and the whole category comes back
+// empty. Instead we COMBINE subreddits into "multireddit" feeds —
+// https://www.reddit.com/r/a+b+c/.rss returns one merged feed — cutting
+// ~130 requests down to a handful (REDDIT_BATCH_SIZE subs per request).
+// Each entry's subreddit is recovered from its link so the per-sub
+// "r/<name>" source label is preserved. User feeds (u/...) can't be
+// combined, so the few of them are fetched individually.
+const REDDIT_BATCH_SIZE = 25;
+const REDDIT_BATCH_DELAY_MS = 1500; // pause between batch requests
+
+async function fetchRedditCategory(feeds, maxAgeMs) {
+  // lowercase sub -> display name (preserve reddit-feeds.json casing)
+  const subDisplay = new Map();
+  const subNames = [];
+  const userFeeds = [];
+  for (const f of feeds) {
+    const m = /\/r\/([^/]+)\//i.exec(f.url || '');
+    if (m) {
+      // A feed url may itself be a custom multi ("foo+bar"); split it.
+      m[1].split('+').forEach(n => {
+        const key = n.toLowerCase();
+        if (!subDisplay.has(key)) { subDisplay.set(key, n); subNames.push(n); }
+      });
+    } else if (/\/user\//i.test(f.url || '')) {
+      userFeeds.push(f);
+    }
+  }
+
+  const redditFavicon = resolveFavicon('https://www.reddit.com/', null);
+  const articles = [];
+  let dropped = 0;
+
+  const pushEntry = (item, sourceName) => {
+    const pubDate = item.pubDate || item.isoDate || '';
+    if (!isFresh(pubDate, maxAgeMs)) { dropped++; return; }
+    articles.push({
+      source: sourceName,
+      favicon: redditFavicon,
+      thumbnail: extractThumbnail(item),
+      title: item.title || 'Untitled',
+      link: item.link || '#',
+      pubDate,
+      snippet: (item.contentSnippet || item.content || '').substring(0, 200),
+    });
+  };
+
+  // Batch subreddits into multireddit feeds, fetched sequentially with a
+  // small pause between requests so we stay gentle on the rate limiter.
+  const batches = [];
+  for (let i = 0; i < subNames.length; i += REDDIT_BATCH_SIZE) {
+    batches.push(subNames.slice(i, i + REDDIT_BATCH_SIZE));
+  }
+  let consecutiveFails = 0;
+  for (let b = 0; b < batches.length; b++) {
+    const batch = batches[b];
+    const url = `https://www.reddit.com/r/${batch.join('+')}/.rss`;
+    try {
+      const parsed = await parser.parseString(await fetchRedditXml(url));
+      (parsed.items || []).forEach(item => {
+        const sm = /\/r\/([^/]+)\//i.exec(item.link || '');
+        const key = sm ? sm[1].toLowerCase() : '';
+        const display = subDisplay.get(key) || (sm ? sm[1] : 'reddit');
+        pushEntry(item, `r/${display}`);
+      });
+      consecutiveFails = 0;
+    } catch (e) {
+      consecutiveFails++;
+      console.log(`Failed to fetch reddit batch [${batch.slice(0, 3).join(',')}…]: ${e.message}`);
+      // If the first couple of batches both fail, the IP is being rate
+      // limited — bail out fast rather than grinding through every batch
+      // (and timing out the request). The caller falls back to the disk
+      // cache so the section still shows recent content.
+      if (consecutiveFails >= 2) {
+        console.log('[news/Reddit] rate limited — aborting remaining batches, will use cache');
+        break;
+      }
+    }
+    if (b < batches.length - 1) await sleep(REDDIT_BATCH_DELAY_MS);
+  }
+
+  // User feeds individually (only a few), sequential with retry.
+  for (const f of userFeeds) {
+    try {
+      const parsed = await parser.parseString(await fetchRedditXml(f.url));
+      (parsed.items || []).forEach(item => pushEntry(item, f.name));
+    } catch (e) {
+      console.log(`Failed to fetch ${f.name}: ${e.message}`);
+    }
+  }
+
+  return { articles, dropped };
 }
 
 // --- Favicon resolution ----------------------------------------------------
@@ -399,37 +510,66 @@ app.get('/api/news/:category', async (req, res) => {
     return res.json(cached);
   }
 
-  const articles = [];
+  let articles = [];
   let droppedStale = 0;
-  const feedPromises = feeds.map(async (feed) => {
-    try {
-      const result = await fetchAndParseFeed(feed.url);
-      // Resolve favicon once per feed (cheap, but no reason to do it per item).
-      const favicon = resolveFavicon(feed.url, result);
-      result.items.slice(0, perFeed).forEach(item => {
-        const pubDate = item.pubDate || item.isoDate || '';
-        // Skip anything older than the category's freshness window so it
-        // never makes it into memory or the cache.
-        if (!isFresh(pubDate, maxAgeMs)) {
-          droppedStale++;
-          return;
-        }
-        articles.push({
-          source: feed.name,
-          favicon,
-          thumbnail: extractThumbnail(item),
-          title: item.title || 'Untitled',
-          link: item.link || '#',
-          pubDate,
-          snippet: (item.contentSnippet || item.content || '').substring(0, 200),
-        });
-      });
-    } catch (e) {
-      console.log(`Failed to fetch ${feed.name}: ${e.message}`);
-    }
-  });
 
-  await Promise.all(feedPromises);
+  if (category === 'Reddit') {
+    // Reddit needs the multireddit-batched path (see fetchRedditCategory)
+    // to avoid per-IP rate limiting that otherwise empties the category.
+    const r = await fetchRedditCategory(feeds, maxAgeMs);
+    articles = r.articles;
+    droppedStale = r.dropped;
+
+    const diskPath = path.join(__dirname, 'public', 'data', 'reddit-news.json');
+    if (articles.length > 0) {
+      // Persist the last good result so a future rate-limited refresh can
+      // still show content instead of a blank section.
+      try { fs.writeFileSync(diskPath, JSON.stringify(articles)); } catch (_) { /* ignore */ }
+    } else {
+      // Live fetch came back empty (almost always rate limiting). Fall back
+      // to the last good batch on disk, filtered to the freshness window.
+      try {
+        if (fs.existsSync(diskPath)) {
+          const saved = JSON.parse(fs.readFileSync(diskPath, 'utf8'));
+          if (Array.isArray(saved)) {
+            articles = saved.filter(a => isFresh(a.pubDate, maxAgeMs));
+            console.log(`[news/Reddit] live fetch empty (rate limited) — served ${articles.length} from disk cache`);
+          }
+        }
+      } catch (_) { /* ignore */ }
+    }
+  } else {
+    const feedPromises = feeds.map(async (feed) => {
+      try {
+        const result = await fetchAndParseFeed(feed.url);
+        // Resolve favicon once per feed (cheap, but no reason to do it per item).
+        const favicon = resolveFavicon(feed.url, result);
+        result.items.slice(0, perFeed).forEach(item => {
+          const pubDate = item.pubDate || item.isoDate || '';
+          // Skip anything older than the category's freshness window so it
+          // never makes it into memory or the cache.
+          if (!isFresh(pubDate, maxAgeMs)) {
+            droppedStale++;
+            return;
+          }
+          articles.push({
+            source: feed.name,
+            favicon,
+            thumbnail: extractThumbnail(item),
+            title: item.title || 'Untitled',
+            link: item.link || '#',
+            pubDate,
+            snippet: (item.contentSnippet || item.content || '').substring(0, 200),
+          });
+        });
+      } catch (e) {
+        console.log(`Failed to fetch ${feed.name}: ${e.message}`);
+      }
+    });
+
+    await Promise.all(feedPromises);
+  }
+
   articles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
 
   if (droppedStale > 0) {

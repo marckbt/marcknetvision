@@ -45,7 +45,15 @@
       "Bash(which docker *)",
       "Bash(docker version *)",
       "Bash(node -c schedule-scraper.js)",
-      "Bash(TZ=__TRACKED_VAR__ node -e ' *)"
+      "Bash(TZ=__TRACKED_VAR__ node -e ' *)",
+      "Bash(node -c \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web/server.js\")",
+      "Bash([ -s \"$f\" ])",
+      "Bash(node -e 'const d=require\\(\"./public/data/reddit-news.json\"\\);console.log\\(\"cached articles:\",d.length\\);console.log\\(\"distinct subs:\",[...new Set\\(d.map\\(a=>a.source\\)\\)].length\\);console.log\\(\"is real data \\(no SEED TEST\\):\",!d.some\\(a=>/SEED TEST/.test\\(a.title\\)\\)\\);')",
+      "Bash(git check-ignore *)",
+      "Bash(node -c capeleague-scraper.js)",
+      "Bash(node capeleague-scraper.js)",
+      "Bash(node -c public/app.js)",
+      "Bash(node -e \"const {refreshSchedule}=require\\('./schedule-scraper'\\); console.log\\('require chain loads:', typeof refreshSchedule==='function'\\)\")"
     ]
   }
 }

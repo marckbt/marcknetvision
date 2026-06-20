@@ -2,6 +2,7 @@ const fetch = require('node-fetch');
 const xml2js = require('xml2js');
 const fs = require('fs');
 const path = require('path');
+const { fetchCapeLeagueGames } = require('./capeleague-scraper');
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
@@ -161,22 +162,34 @@ function parseESPNGuideEvents(events) {
     const sportSlug = event.sport?.slug || '';
     const sportName = event.sport?.displayName || '';
     const leagueAbbr = event.league?.abbreviation || event.league?.shortName || '';
+    const leagueName = event.league?.name || event.league?.displayName || '';
 
     // Check if sport is in our allowed list
     const sportConfig = ALLOWED_SPORTS[sportSlug];
     if (!sportConfig) continue;
 
-    // If sport has specific leagues defined, filter to those
+    // Custom league override: the New England Collegiate Baseball League
+    // (a summer collegiate wood-bat league) isn't one of the standard
+    // MLB/College leagues in leagueMap, so it would otherwise be filtered
+    // out below. Match it by league name (or the NECBL abbreviation) and
+    // give it a dedicated game type so it still shows.
+    let customSportLabel = '';
+    if (sportSlug === 'baseball' &&
+        (/new england collegiate baseball/i.test(leagueName) || /^NECBL$/i.test(leagueAbbr))) {
+      customSportLabel = 'Baseball-Summer League';
+    }
+
+    // If sport has specific leagues defined, filter to those — unless a
+    // custom override (above) already accepted this event.
     const leagueKeys = Object.keys(sportConfig.leagueMap);
     let leagueLabel = '';
-    if (leagueKeys.length > 0) {
+    if (!customSportLabel && leagueKeys.length > 0) {
       if (!sportConfig.leagueMap[leagueAbbr]) continue;
       leagueLabel = sportConfig.leagueMap[leagueAbbr];
     }
 
     // Filter out women's events
     const eventName = event.name || event.shortName || '';
-    const leagueName = event.league?.name || event.league?.displayName || '';
     if (/women|woman|wbb|wnba|wnt|lpga|ncaaw|ladies/i.test(eventName + ' ' + leagueName + ' ' + leagueAbbr)) {
       continue;
     }
@@ -242,10 +255,11 @@ function parseESPNGuideEvents(events) {
     // the game is actually airing.
     const network = extractNetwork(event) || 'TBD';
 
-    // Determine sport label
-    const sportLabel = leagueLabel
-      ? `${sportName} (${leagueLabel})`
-      : sportName;
+    // Determine sport label. A custom override (e.g. NECBL → "Baseball-
+    // Summer League") wins; otherwise use "Sport (League)" or just Sport.
+    const sportLabel = customSportLabel
+      ? customSportLabel
+      : (leagueLabel ? `${sportName} (${leagueLabel})` : sportName);
 
     items.push({
       sport: sportLabel,
@@ -382,6 +396,10 @@ function filterAndSort(allItems) {
   // Combined baseball, MLB first
   const baseball = [...mlbBaseball, ...collegeBaseball].slice(0, 40);
 
+  // Summer collegiate league (NECBL) — kept as its own group so a busy
+  // MLB/College slate can't crowd these out of the combined cap above.
+  const summerBaseball = allItems.filter(i => i.sport === 'Baseball-Summer League').slice(0, 20);
+
   // Football (up to 40)
   const football = allItems.filter(i => i.sport.startsWith('Football')).slice(0, 40);
 
@@ -405,7 +423,7 @@ function filterAndSort(allItems) {
   const sc2 = allItems.filter(i => i.sport === 'SC2');
 
   // Intersperse SC2 events between every sport group
-  const sportGroups = [baseball, football, basketball, tennis, golf].filter(g => g.length > 0);
+  const sportGroups = [baseball, summerBaseball, football, basketball, tennis, golf].filter(g => g.length > 0);
   const result = [];
 
   for (let i = 0; i < sportGroups.length; i++) {
@@ -423,7 +441,7 @@ function filterAndSort(allItems) {
     result.push(...sc2);
   }
 
-  console.log(`[Schedule] Breakdown: MLB=${mlbBaseball.length}, College BB=${collegeBaseball.length}, Football=${football.length}, Basketball=${basketball.length}, Tennis=${tennis.length}, Golf=${golf.length}, SC2=${sc2.length}`);
+  console.log(`[Schedule] Breakdown: MLB=${mlbBaseball.length}, College BB=${collegeBaseball.length}, Summer BB=${summerBaseball.length}, Football=${football.length}, Basketball=${basketball.length}, Tennis=${tennis.length}, Golf=${golf.length}, SC2=${sc2.length}`);
 
   return result;
 }
@@ -475,14 +493,15 @@ function mergeWithPreviousSchedule(newItems, schedulePath) {
 async function refreshSchedule() {
   console.log('[Schedule] Refreshing sports schedule...');
 
-  // Fetch ESPN Guide Feed + TL in parallel
-  const [espnItems, sc2Items] = await Promise.all([
+  // Fetch ESPN Guide Feed + Team Liquid SC2 + Cape Cod League in parallel.
+  const [espnItems, sc2Items, capeItems] = await Promise.all([
     fetchESPNGuideFeed(),
     fetchTeamLiquidSC2(),
+    fetchCapeLeagueGames(),
   ]);
 
-  const allItems = [...espnItems, ...sc2Items];
-  console.log(`[Schedule] Raw items: ${allItems.length}`);
+  const allItems = [...espnItems, ...sc2Items, ...capeItems];
+  console.log(`[Schedule] Raw items: ${allItems.length} (ESPN=${espnItems.length}, SC2=${sc2Items.length}, Cape=${capeItems.length})`);
 
   const filtered = filterAndSort(allItems);
   console.log(`[Schedule] Filtered items: ${filtered.length}`);

@@ -239,6 +239,14 @@
           <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
           <div id="worldWeatherContent"></div>
         </div>
+
+        <div id="gameBroadcastPanel" class="content-panel">
+          <button class="back-btn" onclick="closeGameBroadcast()">&larr; Back</button>
+          <div id="gameBroadcastContent">
+            <h2 id="gameBroadcastTitle">Live Game</h2>
+            <iframe id="gameBroadcastFrame" src="" style="width:100%;height:calc(100vh - 180px);border:none;border-radius:8px;" allow="autoplay; fullscreen" allowfullscreen></iframe>
+          </div>
+        </div>
       </div>
     </main>
   </div>

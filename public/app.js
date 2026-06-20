@@ -979,6 +979,26 @@ function showYouTubeTV() {
 // Open a sports game / stream link in a popup sized to the main content
 // panel (same sizing as the ESPN/DW live popups, so it doesn't overlap
 // the bottom ticker).
+// Render an embeddable game broadcast (e.g. Cape Cod League games from
+// capeleaguetv.com) inline in the main content panel via an iframe, rather
+// than opening a popup window. Used for events whose linkType is 'embed'.
+function showGameBroadcast(url, title) {
+  if (!url) return;
+  const frame = document.getElementById('gameBroadcastFrame');
+  const titleEl = document.getElementById('gameBroadcastTitle');
+  if (titleEl) titleEl.textContent = title || 'Live Game';
+  if (frame) frame.src = url;
+  showPanel('gameBroadcastPanel');
+}
+
+function closeGameBroadcast() {
+  // Stop the stream by navigating the iframe to about:blank before leaving
+  // the panel (clearing src alone leaves the player loaded in some browsers).
+  const frame = document.getElementById('gameBroadcastFrame');
+  if (frame) frame.src = 'about:blank';
+  showPanel('welcomeScreen');
+}
+
 function showGamePopup(url) {
   if (!url) return;
   const main = document.getElementById('mainContent');
@@ -1225,21 +1245,33 @@ function buildEventWatch(item) {
 
   let watchStateClass = 'event-watch--upcoming';
   let watchTitle = 'Watch';
-  const startMs = item && item.sortTime ? new Date(item.sortTime).getTime() : NaN;
-  if (Number.isFinite(startMs)) {
-    const ageMs = Date.now() - startMs;
-    const FIVE_HOURS = 5 * 60 * 60 * 1000;
-    if (ageMs >= FIVE_HOURS) {
-      watchStateClass = 'event-watch--stale';
-      watchTitle = 'Started over 5h ago';
-    } else if (ageMs >= 0) {
-      watchStateClass = 'event-watch--live';
-      watchTitle = 'In progress';
+  if (item && item.live) {
+    // Explicitly-live broadcast (e.g. a Cape League game still streaming):
+    // always show the live state regardless of how long ago it started.
+    watchStateClass = 'event-watch--live';
+    watchTitle = 'Live now';
+  } else {
+    const startMs = item && item.sortTime ? new Date(item.sortTime).getTime() : NaN;
+    if (Number.isFinite(startMs)) {
+      const ageMs = Date.now() - startMs;
+      const FIVE_HOURS = 5 * 60 * 60 * 1000;
+      if (ageMs >= FIVE_HOURS) {
+        watchStateClass = 'event-watch--stale';
+        watchTitle = 'Started over 5h ago';
+      } else if (ageMs >= 0) {
+        watchStateClass = 'event-watch--live';
+        watchTitle = 'In progress';
+      }
     }
   }
 
+  // Cape League (and any future embeddable streams) carry linkType 'embed'
+  // and render inline in the main panel; everything else opens a popup.
+  const safeTitle = (item && item.matchup ? String(item.matchup) : '').replace(/'/g, "\\'");
   const clickAttr = isClickable
-    ? `onclick="showGamePopup('${escapeHtml(safeLink)}'); return false;"`
+    ? (item && item.linkType === 'embed'
+        ? `onclick="showGameBroadcast('${escapeHtml(safeLink)}', '${escapeHtml(safeTitle)}'); return false;"`
+        : `onclick="showGamePopup('${escapeHtml(safeLink)}'); return false;"`)
     : '';
   const watchHint = isClickable
     ? `<span class="event-watch ${watchStateClass}" title="${watchTitle}">&#9654;</span>`
@@ -1424,31 +1456,60 @@ document.getElementById('refreshRss').addEventListener('click', async () => {
 const AUTO_SCROLL_PX_PER_SEC = 20;
 const AUTO_SCROLL_PAUSE_AT_TOP_MS = 800;
 const AUTO_SCROLL_PAUSE_AT_BOTTOM_MS = 1500;
+// Minimum time to dwell on a topic area before auto-advancing when it has
+// no scrollable content (feeds still loading, or a genuinely empty/short
+// category). Prevents rapidly skipping through categories before their
+// content has a chance to load.
+const MIN_CATEGORY_DWELL_MS = 15000;
 let autoScrollRafId = null;
 let autoScrollLastTs = 0;
 let autoScrollAcc = 0;
 let autoScrollPaused = false;
+let autoScrollSwitching = false;   // a topic switch (async load) is in progress
+let autoScrollCategoryAt = 0;      // performance.now() when current topic was selected
 
 function getScrollingArea() {
   // In swapped mode, the left panel shows events via #newsScrollArea (same element)
   return document.getElementById('newsScrollArea');
 }
 
-function cycleLeftPanelCategoryOrSort() {
-  if (isSwapped) {
-    // Events mode: toggle sort between time and sport
-    const next = eventSortMode === 'time' ? 'sport' : 'time';
-    setEventSort(next);
-  } else {
-    // News mode: move to next category tab (wrap around)
-    const tabs = Array.from(document.querySelectorAll('#newsCategoryTabs .tab-btn'));
-    if (!tabs.length) return;
-    const currentIdx = tabs.findIndex(t => t.classList.contains('active'));
-    const nextIdx = (currentIdx + 1) % tabs.length;
-    tabs[currentIdx]?.classList.remove('active');
-    tabs[nextIdx].classList.add('active');
-    loadNewsCategory(tabs[nextIdx].dataset.category);
-  }
+// Advance to the next topic area (next category tab, or — in events-swap
+// mode — toggle the event sort), AWAIT its content to load/render, then
+// reset the scroll position and timing so the new topic starts cleanly
+// from the top. Guarded so overlapping triggers can't double-advance.
+async function autoScrollAdvanceTopic() {
+  if (autoScrollSwitching) return;
+  autoScrollSwitching = true;
+  autoScrollPaused = true;
+  try {
+    if (isSwapped) {
+      const next = eventSortMode === 'time' ? 'sport' : 'time';
+      setEventSort(next);
+    } else {
+      const tabs = Array.from(document.querySelectorAll('#newsCategoryTabs .tab-btn'));
+      if (tabs.length) {
+        const currentIdx = tabs.findIndex(t => t.classList.contains('active'));
+        const nextIdx = (currentIdx + 1) % tabs.length;
+        tabs[currentIdx]?.classList.remove('active');
+        tabs[nextIdx].classList.add('active');
+        // Await so we don't measure an empty/loading panel right after.
+        await loadNewsCategory(tabs[nextIdx].dataset.category);
+      }
+    }
+  } catch (_) { /* ignore — timing reset still happens below */ }
+
+  // Fresh topic selected: reset scroll to top and reset the delay/accumulator.
+  const a = getScrollingArea();
+  if (a) a.scrollTop = 0;
+  autoScrollAcc = 0;
+  autoScrollLastTs = 0;
+  autoScrollCategoryAt = performance.now();
+  // Brief settle pause so the new content lays out before we scroll/measure.
+  setTimeout(() => {
+    autoScrollPaused = false;
+    autoScrollSwitching = false;
+    autoScrollLastTs = 0;
+  }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
 }
 
 function autoScrollStep(ts) {
@@ -1457,34 +1518,29 @@ function autoScrollStep(ts) {
   const dt = ts - autoScrollLastTs;
   autoScrollLastTs = ts;
 
-  if (!autoScrollPaused) {
-    autoScrollAcc += (AUTO_SCROLL_PX_PER_SEC * dt) / 1000;
+  // Do nothing while paused or while a topic switch is loading.
+  if (!autoScrollPaused && !autoScrollSwitching) {
     const area = getScrollingArea();
     if (area) {
       const maxScroll = area.scrollHeight - area.clientHeight;
       if (maxScroll <= 0) {
-        // Not enough content to scroll — just cycle after pause
-        autoScrollPaused = true;
-        setTimeout(() => {
-          cycleLeftPanelCategoryOrSort();
-          autoScrollAcc = 0;
-          // Wait a bit after category change for the new content to render
-          setTimeout(() => { autoScrollPaused = false; autoScrollLastTs = 0; }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
-        }, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
-      } else if (autoScrollAcc >= 1) {
-        const delta = Math.floor(autoScrollAcc);
-        autoScrollAcc -= delta;
-        area.scrollTop = Math.min(area.scrollTop + delta, maxScroll);
-        if (area.scrollTop >= maxScroll - 1) {
-          // Reached bottom: pause, cycle category, reset to top
-          autoScrollPaused = true;
-          setTimeout(() => {
-            cycleLeftPanelCategoryOrSort();
-            autoScrollAcc = 0;
-            const a = getScrollingArea();
-            if (a) a.scrollTop = 0;
-            setTimeout(() => { autoScrollPaused = false; autoScrollLastTs = 0; }, AUTO_SCROLL_PAUSE_AT_TOP_MS);
-          }, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
+        // No scrollable content yet (still loading or empty). Hold on this
+        // topic for at least MIN_CATEGORY_DWELL_MS before advancing, giving
+        // slow feeds time to populate instead of rapid-skipping.
+        if (performance.now() - autoScrollCategoryAt >= MIN_CATEGORY_DWELL_MS) {
+          autoScrollAdvanceTopic();
+        }
+      } else {
+        autoScrollAcc += (AUTO_SCROLL_PX_PER_SEC * dt) / 1000;
+        if (autoScrollAcc >= 1) {
+          const delta = Math.floor(autoScrollAcc);
+          autoScrollAcc -= delta;
+          area.scrollTop = Math.min(area.scrollTop + delta, maxScroll);
+          if (area.scrollTop >= maxScroll - 1) {
+            // Reached the bottom: pause briefly, then advance to next topic.
+            autoScrollPaused = true;
+            setTimeout(autoScrollAdvanceTopic, AUTO_SCROLL_PAUSE_AT_BOTTOM_MS);
+          }
         }
       }
     }
@@ -1501,6 +1557,10 @@ function setAutoScroll(enabled) {
       autoScrollLastTs = 0;
       autoScrollAcc = 0;
       autoScrollPaused = false;
+      autoScrollSwitching = false;
+      // Start the dwell clock now so the current topic gets its full
+      // minimum dwell before the first auto-advance.
+      autoScrollCategoryAt = performance.now();
       autoScrollRafId = requestAnimationFrame(autoScrollStep);
     }
     statusSpan.textContent = 'ON';
@@ -1991,6 +2051,7 @@ let eventSortMode = 'time'; // 'time' or 'sport'
 function getSportClass(sport) {
   const s = (sport || '').toLowerCase();
   if (s.includes('baseball') && s.includes('college')) return 'baseball-college';
+  if (s.includes('baseball') && s.includes('summer')) return 'baseball-summer';
   if (s.includes('baseball')) return 'baseball';
   if (s.includes('football') && (s.includes('cfb') || s.includes('college'))) return 'football-college';
   if (s.includes('football')) return 'football';
@@ -2015,10 +2076,13 @@ function sportSortKey(sport) {
 
 // Drop events that started more than 5 hours ago. Events without a parseable
 // sortTime are kept (we'd rather show an undated item than silently hide it).
+// Events flagged `live` (still active/viewable, e.g. a Cape League game in
+// extra innings) are always kept regardless of how long ago they started.
 function filterFreshEvents(items) {
   const FIVE_HOURS = 5 * 60 * 60 * 1000;
   const cutoff = Date.now() - FIVE_HOURS;
   return (items || []).filter(item => {
+    if (item && item.live) return true;
     const t = item && item.sortTime ? new Date(item.sortTime).getTime() : NaN;
     if (!Number.isFinite(t)) return true;
     return t >= cutoff;
