@@ -1337,34 +1337,25 @@ function getTimeAgo(dateStr) {
 }
 
 // --- Refresh All ---
-document.getElementById('refreshAll').addEventListener('click', async () => {
+document.getElementById('refreshAll').addEventListener('click', () => {
   const btn = document.getElementById('refreshAll');
   btn.classList.add('refreshing');
   btn.disabled = true;
 
-  try {
-    // Clear server cache
-    await fetch('/api/refresh', { method: 'POST' });
+  // Turn off auto-scroll (news + weather) so the page isn't mid-scroll when
+  // it reloads. Persisting the off-state means it stays off after reload.
+  try { setAutoScroll(false); } catch (_) {}
+  try { setWeatherAutoScroll(false); } catch (_) {}
 
-    // Clear local caches
-    allNewsData = {};
-    weatherData = null;
+  // Kick a server-side refresh (fire-and-forget) so all data regenerates
+  // while we wait. We don't await it — the 20s timer below starts from the
+  // click so the reload lands ~20s later regardless of how long the
+  // server-side refresh takes.
+  fetch('/api/refresh', { method: 'POST' }).catch(e => console.error('Refresh failed:', e));
 
-    // Reload all data in parallel
-    const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
-    const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
-
-    await Promise.all([
-      loadNewsCategory(activeCategory, true),
-      loadWeather(),
-      loadSchedule()
-    ]);
-  } catch (e) {
-    console.error('Refresh failed:', e);
-  } finally {
-    btn.classList.remove('refreshing');
-    btn.disabled = false;
-  }
+  // Reload the whole page 20 seconds after the click to pick up the fresh
+  // data cleanly.
+  setTimeout(() => { location.reload(); }, 20000);
 });
 
 // --- Sidebar Resize ---
@@ -1433,15 +1424,41 @@ document.getElementById('refreshAll').addEventListener('click', async () => {
 // Refreshes only the news feeds (active category), in place, with no
 // page reload — so the user's scroll position, open panels, and
 // selected tab survive. This replaces the old 10-minute auto-refresh.
+// News panel kebab dropdown (holds "Refresh Current Section").
+(function initNewsMenu() {
+  const toggle = document.getElementById('newsMenuToggle');
+  const menu = document.getElementById('newsMenu');
+  if (!toggle || !menu) return;
+  const setOpen = (open) => {
+    menu.hidden = !open;
+    toggle.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  toggle.addEventListener('click', (e) => { e.stopPropagation(); setOpen(menu.hidden); });
+  // Click outside closes it.
+  document.addEventListener('click', (e) => {
+    if (menu.hidden) return;
+    if (menu.contains(e.target) || toggle.contains(e.target)) return;
+    setOpen(false);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+})();
+
+// "Refresh Current Section" — re-fetch the active news category in place.
 document.getElementById('refreshRss').addEventListener('click', async () => {
   const btn = document.getElementById('refreshRss');
   btn.classList.add('refreshing');
   btn.disabled = true;
+  // Close the dropdown after triggering.
+  const menu = document.getElementById('newsMenu');
+  const toggle = document.getElementById('newsMenuToggle');
+  if (menu) menu.hidden = true;
+  if (toggle) { toggle.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false'); }
   try {
-    console.log('[RefreshRSS] Refreshing news feeds...');
-    allNewsData = {};
+    console.log('[RefreshRSS] Refreshing current news section...');
     const activeNewsTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
     const activeCategory = activeNewsTab ? activeNewsTab.dataset.category : 'Tech';
+    delete allNewsData[activeCategory];
     await loadNewsCategory(activeCategory, true);
   } catch (e) {
     console.error('[RefreshRSS] Failed:', e);
@@ -2107,8 +2124,11 @@ function setEventSort(mode) {
   eventSortMode = mode;
   document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll(`.sort-btn[data-sort="${mode}"]`).forEach(b => b.classList.add('active'));
-  if (isSwapped) {
-    renderEventsSidebar(cachedScheduleData);
+  // Re-render wherever events are currently shown. With the news<->events
+  // swap removed, events live in the weather (middle) column when
+  // weather-swapped; otherwise they're in the bottom ticker.
+  if (isWeatherSwapped) {
+    renderEventsIntoArea(cachedScheduleData, document.getElementById('weatherScrollArea'));
   } else {
     renderTicker(cachedScheduleData);
   }
@@ -2211,90 +2231,12 @@ function renderNewsTicker(articles) {
   });
 }
 
-async function applySwap() {
-  const btn = document.getElementById('swapToggle');
-  const sidebarHeader = document.querySelector('#newsSidebar .sidebar-header h3');
-  const tabsContainer = document.getElementById('newsCategoryTabs');
-  const scrollArea = document.getElementById('newsScrollArea');
-  const track = document.getElementById('tickerTrack');
+// (News<->Events swap removed — news is fixed in the left column and
+// events in the middle column. The former applySwap() is gone.)
 
-  const sortControls = document.getElementById('eventSortControls');
-
-  if (isSwapped) {
-    btn.classList.add('swapped');
-    sidebarHeader.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 4v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> EVENTS';
-    tabsContainer.style.display = 'none';
-    sortControls.style.display = '';
-
-    // Show loading states in both areas
-    scrollArea.innerHTML = '<div class="loading-spinner">Loading events...</div>';
-    track.innerHTML = '<span class="ticker-loading">Loading news feeds...</span>';
-
-    // Fetch events if not cached
-    if (!cachedScheduleData.length) {
-      try {
-        const res = await fetch('/api/schedule');
-        cachedScheduleData = await res.json();
-        document.getElementById('statSports').textContent = cachedScheduleData.length;
-      } catch (e) {
-        try {
-          const sc2Res = await fetch('/api/sc2events');
-          const sc2 = await sc2Res.json();
-          cachedScheduleData = sc2.map(ev => ({
-            sport: 'SC2', matchup: ev.name, network: 'Online', time: ev.time, link: ev.link
-          }));
-        } catch (e2) { /* empty */ }
-      }
-    }
-
-    // Render events in sidebar
-    renderEventsSidebar(cachedScheduleData);
-
-    // Fetch ALL news categories, then render in ticker
-    const allArticles = await getAllNewsForTicker();
-    renderNewsTicker(allArticles);
-  } else {
-    btn.classList.remove('swapped');
-    sidebarHeader.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="3" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="4" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="4" y1="10" x2="16" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="13" x2="14" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg> NEWS';
-    tabsContainer.style.display = '';
-    sortControls.style.display = 'none';
-
-    // Show loading states
-    scrollArea.innerHTML = '<div class="loading-spinner">Loading news...</div>';
-    track.innerHTML = '<span class="ticker-loading">Loading events...</span>';
-
-    // Restore news in sidebar
-    const activeTab = document.querySelector('#newsCategoryTabs .tab-btn.active');
-    const activeCategory = activeTab ? activeTab.dataset.category : 'Tech';
-    await loadNewsCategory(activeCategory);
-
-    // Fetch events if not cached, then restore in ticker
-    if (!cachedScheduleData.length) {
-      try {
-        const res = await fetch('/api/schedule');
-        cachedScheduleData = await res.json();
-        document.getElementById('statSports').textContent = cachedScheduleData.length;
-      } catch (e) { /* empty */ }
-    }
-    renderTicker(cachedScheduleData);
-  }
-}
-
-document.getElementById('swapToggle').addEventListener('click', async () => {
-  const btn = document.getElementById('swapToggle');
-  btn.disabled = true;
-  isSwapped = !isSwapped;
-  localStorage.setItem('mnv-swapped', isSwapped ? '1' : '0');
-  // News-swap and weather-swap both want to own the bottom ticker; only
-  // one can be active at a time. Force-disable the other if it's on.
-  if (isSwapped && isWeatherSwapped) {
-    isWeatherSwapped = false;
-    localStorage.setItem('mnv-weather-swapped', '0');
-    await applyWeatherSwap();
-  }
-  await applySwap();
-  btn.disabled = false;
-});
+// News<->Events swapping has been removed: news is permanently in the left
+// column and events in the middle column. `isSwapped` stays false so the
+// remaining `if (isSwapped)` branches always take the news path.
 
 // =====================================================================
 // Weather <-> Events swap (center/weather sidebar variant).
@@ -2436,30 +2378,51 @@ function renderWeatherCycleLocation() {
       `).join('');
   }
 
-  // Single horizontal pass: start off the right edge, scroll until the
-  // whole forecast has cleared the left edge, then advance. The animation
-  // uses fill:'forwards' so a finished pass holds the track off-screen
-  // left (no flash of left-aligned content) until the next pass's first
-  // frame snaps it back off-screen right.
+  // Single horizontal pass that never scrolls over blank space: the first
+  // item starts flush at the LEFT edge and we scroll left only until the
+  // END of the forecast reaches the RIGHT edge. If the whole forecast
+  // already fits in the view, we don't scroll at all — just hold it and
+  // advance after a dwell.
+  const advance = () => {
+    if (!wxCycleActive) return;
+    wxCycleIndex = (wxCycleIndex + 1) % Math.max(1, getWeatherCycleLocations().length);
+    renderWeatherCycleLocation();
+  };
+
   requestAnimationFrame(() => {
     if (!wxCycleActive) return;
     const Wc = content.clientWidth;
     const Wt = track.scrollWidth;
-    const distance = Wc + Wt;
-    const duration = Math.max(6000, (distance / WX_CYCLE_PX_PER_SEC) * 1000);
+    const scrollDist = Math.max(0, Wt - Wc);   // distance from first-at-left to end-at-right
     if (wxCycleAnim) { try { wxCycleAnim.cancel(); } catch (_) {} }
+
+    // Always begin with the first item flush at the left edge.
+    track.style.transform = 'translateX(0)';
+
+    if (scrollDist === 0) {
+      // Forecast fits in the view — no scrolling needed. Hold, then advance.
+      if (wxCycleTimer) clearTimeout(wxCycleTimer);
+      wxCycleTimer = setTimeout(advance, 6000);
+      return;
+    }
+
+    const travelMs = (scrollDist / WX_CYCLE_PX_PER_SEC) * 1000;
+    // Brief holds at the start (first item readable) and end (last item
+    // readable) bracketing a linear scroll, with no blank space ever shown.
+    const HOLD_MS = 1500;
+    const total = travelMs + HOLD_MS * 2;
+    const leadOff = HOLD_MS / total;
+    const trailOff = 1 - HOLD_MS / total;
     wxCycleAnim = track.animate(
       [
-        { transform: `translateX(${Wc}px)` },
-        { transform: `translateX(${-Wt}px)` },
+        { transform: 'translateX(0)', offset: 0 },
+        { transform: 'translateX(0)', offset: leadOff },
+        { transform: `translateX(${-scrollDist}px)`, offset: trailOff },
+        { transform: `translateX(${-scrollDist}px)`, offset: 1 },
       ],
-      { duration, easing: 'linear', fill: 'forwards' }
+      { duration: total, easing: 'linear', fill: 'forwards' }
     );
-    wxCycleAnim.onfinish = () => {
-      if (!wxCycleActive) return;
-      wxCycleIndex = (wxCycleIndex + 1) % Math.max(1, getWeatherCycleLocations().length);
-      renderWeatherCycleLocation();
-    };
+    wxCycleAnim.onfinish = advance;
   });
 }
 
@@ -2475,6 +2438,8 @@ async function applyWeatherSwap() {
     titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 4v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> EVENTS';
     // Hide location tabs in events mode (no use for them); show event sort.
     locationTabs.style.display = 'none';
+    const sortCtl = document.getElementById('weatherEventSortControls');
+    if (sortCtl) sortCtl.style.display = '';
 
     scrollArea.innerHTML = '<div class="loading-spinner">Loading events...</div>';
     track.innerHTML = '<span class="ticker-loading">Loading weather...</span>';
@@ -2507,6 +2472,8 @@ async function applyWeatherSwap() {
     btn.classList.remove('swapped');
     titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> WEATHER';
     locationTabs.style.display = '';
+    const sortCtl = document.getElementById('weatherEventSortControls');
+    if (sortCtl) sortCtl.style.display = 'none';
 
     // Stop the weather cycle and restore standard layout.
     stopWeatherCycle();
@@ -2553,12 +2520,6 @@ document.getElementById('weatherSwapToggle').addEventListener('click', async () 
   btn.disabled = true;
   isWeatherSwapped = !isWeatherSwapped;
   localStorage.setItem('mnv-weather-swapped', isWeatherSwapped ? '1' : '0');
-  // Mutual exclusion with the news swap (they both want the ticker).
-  if (isWeatherSwapped && isSwapped) {
-    isSwapped = false;
-    localStorage.setItem('mnv-swapped', '0');
-    await applySwap();
-  }
   await applyWeatherSwap();
   btn.disabled = false;
 });
@@ -2681,18 +2642,13 @@ document.getElementById('weatherAutoScrollToggle').addEventListener('click', () 
   // Wait for news and schedule before restoring swap state
   await Promise.allSettled([newsPromise, schedulePromise]);
 
-  // Restore swap states. News-swap and weather-swap are mutually
-  // exclusive (they both want the ticker); if both saved as on, prefer
-  // the more-recently-toggled one — we tiebreak by giving weather
-  // priority since the news swap has existed longer.
-  const savedNewsSwap    = localStorage.getItem('mnv-swapped') === '1';
-  const savedWeatherSwap = localStorage.getItem('mnv-weather-swapped') === '1';
-  if (savedWeatherSwap) {
-    isWeatherSwapped = true;
+  // Default layout: news in the left column, EVENTS in the middle column,
+  // and WEATHER in the bottom ticker — i.e. weather-swapped ON by default.
+  // Respect an explicit user toggle if one was saved; otherwise default on.
+  const savedWeatherSwap = localStorage.getItem('mnv-weather-swapped');
+  isWeatherSwapped = (savedWeatherSwap === null) ? true : (savedWeatherSwap === '1');
+  if (isWeatherSwapped) {
     await applyWeatherSwap();
-  } else if (savedNewsSwap) {
-    isSwapped = true;
-    await applySwap();
   }
 
   // Restore the weather sidebar's auto-scroll setting independently.

@@ -53,7 +53,12 @@
       "Bash(node -c capeleague-scraper.js)",
       "Bash(node capeleague-scraper.js)",
       "Bash(node -c public/app.js)",
-      "Bash(node -e \"const {refreshSchedule}=require\\('./schedule-scraper'\\); console.log\\('require chain loads:', typeof refreshSchedule==='function'\\)\")"
+      "Bash(node -e \"const {refreshSchedule}=require\\('./schedule-scraper'\\); console.log\\('require chain loads:', typeof refreshSchedule==='function'\\)\")",
+      "Bash(rm -f public/data/schedule.json)",
+      "Bash(node -c necbl-scraper.js)",
+      "Bash(node necbl-scraper.js)",
+      "Bash(grep -q \"necbl-scraper\" .dockerignore)",
+      "Bash(node -e 'try{const d=require\\(\"./public/data/schedule.json\"\\);const t=d.filter\\(i=>\\(i.sport||\"\"\\).toLowerCase\\(\\).includes\\(\"tennis\"\\)\\);console.log\\(\"tennis count:\",t.length\\);t.forEach\\(x=>console.log\\(\"  \",x.time,\"|\",x.sortTime,\"|\",x.matchup\\)\\);}catch\\(e\\){console.log\\(\"no schedule.json\",e.message\\)}')"
     ]
   }
 }

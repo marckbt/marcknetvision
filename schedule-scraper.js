@@ -3,6 +3,7 @@ const xml2js = require('xml2js');
 const fs = require('fs');
 const path = require('path');
 const { fetchCapeLeagueGames } = require('./capeleague-scraper');
+const { fetchNECBLGames } = require('./necbl-scraper');
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
@@ -168,22 +169,13 @@ function parseESPNGuideEvents(events) {
     const sportConfig = ALLOWED_SPORTS[sportSlug];
     if (!sportConfig) continue;
 
-    // Custom league override: the New England Collegiate Baseball League
-    // (a summer collegiate wood-bat league) isn't one of the standard
-    // MLB/College leagues in leagueMap, so it would otherwise be filtered
-    // out below. Match it by league name (or the NECBL abbreviation) and
-    // give it a dedicated game type so it still shows.
-    let customSportLabel = '';
-    if (sportSlug === 'baseball' &&
-        (/new england collegiate baseball/i.test(leagueName) || /^NECBL$/i.test(leagueAbbr))) {
-      customSportLabel = 'Baseball-Summer League';
-    }
-
-    // If sport has specific leagues defined, filter to those — unless a
-    // custom override (above) already accepted this event.
+    // If sport has specific leagues defined, filter to those.
+    // (NECBL is no longer matched here — it has its own dedicated ESPN
+    // Watch scraper, necbl-scraper.js, so matching it again from the Guide
+    // Feed would double-count it.)
     const leagueKeys = Object.keys(sportConfig.leagueMap);
     let leagueLabel = '';
-    if (!customSportLabel && leagueKeys.length > 0) {
+    if (leagueKeys.length > 0) {
       if (!sportConfig.leagueMap[leagueAbbr]) continue;
       leagueLabel = sportConfig.leagueMap[leagueAbbr];
     }
@@ -255,11 +247,9 @@ function parseESPNGuideEvents(events) {
     // the game is actually airing.
     const network = extractNetwork(event) || 'TBD';
 
-    // Determine sport label. A custom override (e.g. NECBL → "Baseball-
-    // Summer League") wins; otherwise use "Sport (League)" or just Sport.
-    const sportLabel = customSportLabel
-      ? customSportLabel
-      : (leagueLabel ? `${sportName} (${leagueLabel})` : sportName);
+    // Determine sport label: "Sport (League)" when we have a league
+    // label, otherwise just the sport name.
+    const sportLabel = leagueLabel ? `${sportName} (${leagueLabel})` : sportName;
 
     items.push({
       sport: sportLabel,
@@ -398,7 +388,7 @@ function filterAndSort(allItems) {
 
   // Summer collegiate league (NECBL) — kept as its own group so a busy
   // MLB/College slate can't crowd these out of the combined cap above.
-  const summerBaseball = allItems.filter(i => i.sport === 'Baseball-Summer League').slice(0, 20);
+  const summerBaseball = allItems.filter(i => i.sport === 'Baseball (Summer)').slice(0, 20);
 
   // Football (up to 40)
   const football = allItems.filter(i => i.sport.startsWith('Football')).slice(0, 40);
@@ -418,28 +408,35 @@ function filterAndSort(allItems) {
     }
   }
 
-  const tennis = allItems.filter(i => i.sport === 'Tennis').slice(0, 5);
+  // Tennis: don't show multiple matches that overlap in time. The feed
+  // often lists many simultaneous matches/courts sharing a start time;
+  // with no end time we treat each as a ~3h block and greedily keep only
+  // non-overlapping ones (earliest first), up to 5.
+  const TENNIS_BLOCK_MS = 3 * 60 * 60 * 1000;
+  const tennisAll = allItems.filter(i => i.sport === 'Tennis')
+    .slice()
+    .sort((a, b) => (a.sortTime || '').localeCompare(b.sortTime || ''));
+  const tennis = [];
+  let tennisLastEnd = -Infinity;
+  for (const ev of tennisAll) {
+    if (tennis.length >= 5) break;
+    const start = ev.sortTime ? new Date(ev.sortTime).getTime() : NaN;
+    if (!Number.isFinite(start)) { tennis.push(ev); continue; } // no time → can't overlap
+    if (start >= tennisLastEnd) {
+      tennis.push(ev);
+      tennisLastEnd = start + TENNIS_BLOCK_MS;
+    }
+  }
   const golf = allItems.filter(i => i.sport === 'Golf').slice(0, 3);
   const sc2 = allItems.filter(i => i.sport === 'SC2');
 
-  // Intersperse SC2 events between every sport group
-  const sportGroups = [baseball, summerBaseball, football, basketball, tennis, golf].filter(g => g.length > 0);
-  const result = [];
-
-  for (let i = 0; i < sportGroups.length; i++) {
-    result.push(...sportGroups[i]);
-    // Insert SC2 events between sport groups (distribute evenly)
-    if (sc2.length > 0) {
-      const sc2PerGap = Math.ceil(sc2.length / sportGroups.length);
-      const start = i * sc2PerGap;
-      const end = Math.min(start + sc2PerGap, sc2.length);
-      result.push(...sc2.slice(start, end));
-    }
-  }
-  // If no sport groups but SC2 exists, just add them
-  if (sportGroups.length === 0 && sc2.length > 0) {
-    result.push(...sc2);
-  }
+  // Combine every capped group — including summer baseball — into one list
+  // and sort chronologically so all event types (Baseball (Summer), MLB,
+  // football, SC2, …) are interleaved by start time rather than clustered
+  // by sport. The client can re-sort by time or by type on demand; this
+  // just gives the saved schedule a sensible, fully-merged default order.
+  const result = [...baseball, ...summerBaseball, ...football, ...basketball, ...tennis, ...golf, ...sc2];
+  result.sort((a, b) => (a.sortTime || '').localeCompare(b.sortTime || ''));
 
   console.log(`[Schedule] Breakdown: MLB=${mlbBaseball.length}, College BB=${collegeBaseball.length}, Summer BB=${summerBaseball.length}, Football=${football.length}, Basketball=${basketball.length}, Tennis=${tennis.length}, Golf=${golf.length}, SC2=${sc2.length}`);
 
@@ -493,15 +490,16 @@ function mergeWithPreviousSchedule(newItems, schedulePath) {
 async function refreshSchedule() {
   console.log('[Schedule] Refreshing sports schedule...');
 
-  // Fetch ESPN Guide Feed + Team Liquid SC2 + Cape Cod League in parallel.
-  const [espnItems, sc2Items, capeItems] = await Promise.all([
+  // Fetch ESPN Guide Feed + Team Liquid SC2 + Cape Cod League + NECBL in parallel.
+  const [espnItems, sc2Items, capeItems, necblItems] = await Promise.all([
     fetchESPNGuideFeed(),
     fetchTeamLiquidSC2(),
     fetchCapeLeagueGames(),
+    fetchNECBLGames(),
   ]);
 
-  const allItems = [...espnItems, ...sc2Items, ...capeItems];
-  console.log(`[Schedule] Raw items: ${allItems.length} (ESPN=${espnItems.length}, SC2=${sc2Items.length}, Cape=${capeItems.length})`);
+  const allItems = [...espnItems, ...sc2Items, ...capeItems, ...necblItems];
+  console.log(`[Schedule] Raw items: ${allItems.length} (ESPN=${espnItems.length}, SC2=${sc2Items.length}, Cape=${capeItems.length}, NECBL=${necblItems.length})`);
 
   const filtered = filterAndSort(allItems);
   console.log(`[Schedule] Filtered items: ${filtered.length}`);
@@ -509,8 +507,25 @@ async function refreshSchedule() {
   // Merge with the previous schedule so events ESPN has already dropped
   // (because they finished) still display until they're 5h past start.
   const schedulePath = path.join(__dirname, 'public', 'data', 'schedule.json');
-  const merged = mergeWithPreviousSchedule(filtered, schedulePath);
+  let merged = mergeWithPreviousSchedule(filtered, schedulePath);
   console.log(`[Schedule] After merge with prior schedule: ${merged.length}`);
+
+  // Authoritative cap: never display summer-league games more than 20h in
+  // the future. Runs after the merge so a stale future game carried over
+  // from a prior schedule can't slip past. Live games are exempt (shown
+  // regardless of how long they've been going).
+  const SUMMER_MAX_FUTURE_MS = 20 * 60 * 60 * 1000;
+  const summerCutoff = Date.now() + SUMMER_MAX_FUTURE_MS;
+  const beforeCap = merged.length;
+  merged = merged.filter(it => {
+    if (it.sport !== 'Baseball (Summer)' || it.live) return true;
+    const t = it.sortTime ? new Date(it.sortTime).getTime() : NaN;
+    if (!Number.isFinite(t)) return true;
+    return t <= summerCutoff;
+  });
+  if (merged.length !== beforeCap) {
+    console.log(`[Schedule] Dropped ${beforeCap - merged.length} summer-league game(s) >20h out`);
+  }
 
   // Save schedule
   fs.writeFileSync(schedulePath, JSON.stringify(merged, null, 2));
@@ -528,7 +543,7 @@ async function refreshSchedule() {
   fs.writeFileSync(sc2Path, JSON.stringify(sc2Events, null, 2));
   console.log(`[Schedule] SC2 events: ${sc2Events.length}`);
 
-  return filtered;
+  return merged;
 }
 
 module.exports = { refreshSchedule };

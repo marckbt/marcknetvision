@@ -13,7 +13,7 @@ const fetch = require('node-fetch');
 //
 // We hit that same API directly, filter to the schedule window, and map each
 // broadcast into the standard schedule-item shape with the game type
-// "Baseball-Summer League" so Cape League games display alongside the other
+// "Baseball (Summer)" so Cape League games display alongside the other
 // baseball games. Each item's `link` is the broadcast's embeddable player URL
 // so the dashboard can render the game inline in the main panel.
 
@@ -81,11 +81,9 @@ function parseGameTitle(raw) {
   return { isGame: false };
 }
 
-// The Cape League runs roughly one slate of games per day, so a 20h
-// "upcoming" window (fine for daily sports like MLB) routinely lands just
-// short of the next game and the section looks empty. Use a wider future
-// window so the next day or two of games reliably show.
-const CAPE_FUTURE_HOURS = 48;
+// Upcoming Cape League games are shown up to this many hours ahead (live
+// games are always shown regardless, see below).
+const CAPE_FUTURE_HOURS = 20;
 
 async function fetchCapeLeagueGames() {
   try {
@@ -160,7 +158,7 @@ async function fetchCapeLeagueGames() {
         || (b.id ? `https://vcloud.hudl.com/broadcast/embed/${b.id}?autoplay=0` : '');
 
       items.push({
-        sport: 'Baseball-Summer League',
+        sport: 'Baseball (Summer)',
         matchup,
         homeName,
         awayName,
