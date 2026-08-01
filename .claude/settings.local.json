@@ -58,7 +58,15 @@
       "Bash(node -c necbl-scraper.js)",
       "Bash(node necbl-scraper.js)",
       "Bash(grep -q \"necbl-scraper\" .dockerignore)",
-      "Bash(node -e 'try{const d=require\\(\"./public/data/schedule.json\"\\);const t=d.filter\\(i=>\\(i.sport||\"\"\\).toLowerCase\\(\\).includes\\(\"tennis\"\\)\\);console.log\\(\"tennis count:\",t.length\\);t.forEach\\(x=>console.log\\(\"  \",x.time,\"|\",x.sortTime,\"|\",x.matchup\\)\\);}catch\\(e\\){console.log\\(\"no schedule.json\",e.message\\)}')"
+      "Bash(node -e 'try{const d=require\\(\"./public/data/schedule.json\"\\);const t=d.filter\\(i=>\\(i.sport||\"\"\\).toLowerCase\\(\\).includes\\(\"tennis\"\\)\\);console.log\\(\"tennis count:\",t.length\\);t.forEach\\(x=>console.log\\(\"  \",x.time,\"|\",x.sortTime,\"|\",x.matchup\\)\\);}catch\\(e\\){console.log\\(\"no schedule.json\",e.message\\)}')",
+      "Bash(node -c public/biznews.js)",
+      "Bash(node -c stocks-scraper.js)",
+      "Bash(cat)",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('public/style.css','utf8'\\)\")",
+      "Bash(node stocks-scraper.js)",
+      "Bash(cd \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web\"; echo \"=== server log: feed failures + stale drops ===\"; grep -iE \"failed to fetch|dropped .* stale\" /tmp/mnv_biz2.log | head -20)",
+      "Bash(pkill -f \"node stocks-scraper.js\")",
+      "Bash(pkill -f \"node server.js\")"
     ]
   }
 }

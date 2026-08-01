@@ -1139,6 +1139,57 @@ body.weather-swapped .ticker-track {
   color: var(--accent);
 }
 
+/* Topic-page links (multi-page): logo cards on the main welcome panel that
+   open a focused section (e.g. Marcknet BizNews). */
+.topic-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 32px;
+}
+.topic-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 26px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+.topic-link:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+  transform: translateY(-2px);
+}
+.topic-link-logo {
+  width: 190px;
+  height: auto;
+  display: block;
+}
+
+/* Back link on topic pages returning to the main page. */
+.biznews-back-link {
+  display: inline-block;
+  margin-top: 26px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.biznews-back-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Back button */
 .back-btn {
   display: inline-block;
@@ -2276,4 +2327,129 @@ body.ticker-relocated #tickerBar .ticker-conditions {
   width: auto;
   min-width: 100px;
   padding: 4px 10px;
+}
+
+/* ===== BIZNEWS: MARKETS ===== */
+/* Middle-column index list */
+.market-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  padding: 8px 4px 6px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-sidebar);
+  z-index: 1;
+}
+.market-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.market-row:hover { background: var(--bg-card-hover); border-color: var(--accent); }
+.market-row.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.market-name { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.market-ticker {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--text-muted); text-transform: uppercase;
+}
+.market-label {
+  font-size: 12.5px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.market-figures { text-align: right; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; }
+.market-price { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.market-change { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.market-pct { opacity: 0.9; }
+.market-figures.up .market-change,  .market-figures.up .market-pct  { color: #10b981; }
+.market-figures.down .market-change, .market-figures.down .market-pct { color: #ef4444; }
+.market-figures.flat .market-change { color: var(--text-muted); }
+
+/* Main panel: header + controls */
+.market-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; margin-bottom: 4px;
+}
+.market-panel-head h2 { font-size: 20px; }
+.market-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.market-view-btn, .range-btn {
+  padding: 5px 12px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border-color); border-radius: 14px;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  transition: all 0.15s;
+}
+.market-view-btn:hover, .range-btn:hover { border-color: var(--accent); color: var(--accent); }
+.market-view-btn.active, .range-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.market-range-controls { display: flex; gap: 5px; }
+.market-subtitle { font-size: 12px; color: var(--text-secondary); margin: 4px 0 16px; }
+.market-subtitle .up { color: #10b981; }
+.market-subtitle .down { color: #ef4444; }
+
+/* Sector heat map */
+.heat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.heat-cell {
+  border-radius: 10px;
+  padding: 18px 14px;
+  min-height: 84px;
+  display: flex; flex-direction: column; justify-content: center;
+  border: 1px solid var(--border-subtle);
+}
+.heat-name { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+.heat-pct { font-size: 18px; font-weight: 800; color: var(--text-primary); }
+
+/* Historical chart */
+.market-chart-wrap { height: calc(100vh - 260px); min-height: 300px; position: relative; }
+
+/* ===== BIZNEWS: CNBC live card + video panel ===== */
+.live-video-full { flex: 1; min-width: 0; }
+.cnbc-logo-row { display: flex; align-items: center; justify-content: center; }
+.cnbc-logo { width: 100%; max-width: 150px; height: 26px; }
+
+/* Main-panel live video (CNBC) */
+.market-video-wrap {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 250px);
+  min-height: 320px;
+  background: #000;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.market-video-wrap iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+.market-link { color: var(--accent); text-decoration: none; }
+.market-link:hover { text-decoration: underline; }
+.market-video-offline {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center;
+  height: calc(100vh - 300px); min-height: 240px;
+  background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 10px;
+  color: var(--text-secondary); font-size: 13px;
+}
+.market-video-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+/* .biznews-back-link is used on both <a> and <button> elements */
+button.biznews-back-link {
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
 }

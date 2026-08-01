@@ -8,6 +8,7 @@ const fs = require('fs');
 const { refreshWeather, fetchNWSAlerts } = require('./weather-scraper');
 const { refreshSchedule } = require('./schedule-scraper');
 const { refreshWorldWeather } = require('./world-weather-scraper');
+const { refreshStocks, fetchStockHistory } = require('./stocks-scraper');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -267,6 +268,10 @@ const DEFAULT_CATEGORY_LIMITS = { perFeed: 5, maxAgeMs: MAX_ARTICLE_AGE_MS };
 const CATEGORY_LIMITS = {
   // Reddit: at most 10 posts per subreddit, nothing older than 48 hours.
   Reddit: { perFeed: 10, maxAgeMs: 48 * 60 * 60 * 1000 },
+  // BizNews sections: business news moves fast, so keep a tighter window
+  // and a few more headlines per source.
+  World: { perFeed: 6, maxAgeMs: 48 * 60 * 60 * 1000 },
+  US:    { perFeed: 6, maxAgeMs: 48 * 60 * 60 * 1000 },
 };
 function limitsFor(category) {
   return CATEGORY_LIMITS[category] || DEFAULT_CATEGORY_LIMITS;
@@ -330,21 +335,35 @@ const BUILD_ID = process.env.BUILD_ID || computeBuildId();
 const SERVER_STARTED_AT = new Date().toISOString();
 console.log(`[Server] Asset build id: ${BUILD_ID}`);
 
-// Serve index.html with cache-busted asset URLs and a no-cache header on
-// the HTML document itself, so a new deploy is always picked up. Registered
-// BEFORE express.static so it wins for "/" and "/index.html".
-function serveIndex(req, res) {
-  fs.readFile(path.join(__dirname, 'public', 'index.html'), 'utf8', (err, html) => {
-    if (err) return res.status(500).send('index.html not found');
-    const out = html
-      .replace('href="style.css"', `href="style.css?v=${BUILD_ID}"`)
-      .replace('src="app.js"', `src="app.js?v=${BUILD_ID}"`);
-    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.type('html').send(out);
-  });
+// Serve an HTML page from public/ with cache-busted asset URLs (?v=BUILD_ID
+// on style.css and the page's own script) and a no-cache header on the HTML
+// document itself, so a new deploy is always picked up. Registered BEFORE
+// express.static so these routes win.
+//
+// This app is moving from a single page to multiple topic-focused pages,
+// each sharing the same base layout. Every page gets its own route here;
+// the main page is index.html/app.js, and additional topic pages (e.g.
+// /biznews) reuse the same shell with their own HTML/script.
+function servePage(fileName) {
+  return (req, res) => {
+    fs.readFile(path.join(__dirname, 'public', fileName), 'utf8', (err, html) => {
+      if (err) return res.status(404).send(`${fileName} not found`);
+      // Cache-bust every LOCAL stylesheet/script (skip absolute http(s) URLs
+      // like the Chart.js CDN) so a new deploy is always picked up.
+      const out = html
+        .replace(/href="((?!https?:)[^"]+\.css)"/g, `href="$1?v=${BUILD_ID}"`)
+        .replace(/src="((?!https?:)[^"]+\.js)"/g, `src="$1?v=${BUILD_ID}"`);
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.type('html').send(out);
+    });
+  };
 }
-app.get('/', serveIndex);
-app.get('/index.html', serveIndex);
+
+// Main page.
+app.get(['/', '/index.html'], servePage('index.html'));
+
+// Topic pages (multi-page). Each reuses the main layout with its own content.
+app.get(['/biznews', '/biznews.html'], servePage('biznews.html'));
 
 // Version / feature probe — hit this to confirm which build is actually
 // running inside the container (bypasses all browser caching):
@@ -461,6 +480,42 @@ const FEED_CATEGORIES = {
 // (and flows into the ticker) exactly like Tech, Aviation, etc.
 FEED_CATEGORIES.Reddit = loadRedditFeeds();
 
+// --- BizNews page feeds ----------------------------------------------------
+// The /biznews page has its own two-section news list (World / US) sourced
+// from business/markets outlets (Bloomberg, CNBC, WSJ, MarketWatch, etc.).
+// Kept separate from FEED_CATEGORIES so the main page's sections are
+// unchanged; category names don't collide, so /api/news/:category can serve
+// both maps (see the lookup in that handler).
+const BIZ_FEED_CATEGORIES = {
+  World: [
+    { name: 'Bloomberg Markets', url: 'https://feeds.bloomberg.com/markets/news.rss' },
+    { name: 'Bloomberg Economics', url: 'https://feeds.bloomberg.com/economics/news.rss' },
+    { name: 'Bloomberg Technology', url: 'https://feeds.bloomberg.com/technology/news.rss' },
+    { name: 'CNBC World', url: 'https://www.cnbc.com/id/15839135/device/rss/rss.html' },
+    { name: 'WSJ World', url: 'https://feeds.a.dj.com/rss/RSSWorldNews.xml' },
+    { name: 'BBC Business', url: 'https://feeds.bbci.co.uk/news/business/rss.xml' },
+    { name: 'Guardian Business', url: 'https://www.theguardian.com/uk/business/rss' },
+    { name: 'The Economist', url: 'https://www.economist.com/finance-and-economics/rss.xml' },
+    { name: 'Investing.com', url: 'https://www.investing.com/rss/news.rss' },
+    { name: 'Business Insider Markets', url: 'https://markets.businessinsider.com/rss/news' },
+  ],
+  US: [
+    { name: 'CNBC Top News', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html' },
+    { name: 'CNBC Economy', url: 'https://www.cnbc.com/id/15839069/device/rss/rss.html' },
+    { name: 'CNBC Finance', url: 'https://www.cnbc.com/id/10001147/device/rss/rss.html' },
+    { name: 'CNBC Markets', url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html' },
+    { name: 'MarketWatch', url: 'https://feeds.content.dowjones.io/public/rss/mw_topstories' },
+    { name: 'MarketWatch Pulse', url: 'https://feeds.content.dowjones.io/public/rss/mw_marketpulse' },
+    { name: 'WSJ Markets', url: 'https://feeds.a.dj.com/rss/RSSMarketsMain.xml' },
+    { name: 'WSJ US Business', url: 'https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml' },
+    { name: 'Bloomberg Politics', url: 'https://feeds.bloomberg.com/politics/news.rss' },
+    { name: 'Yahoo Finance', url: 'https://finance.yahoo.com/news/rssindex' },
+    { name: 'Forbes Business', url: 'https://www.forbes.com/business/feed/' },
+    { name: 'Fortune', url: 'https://fortune.com/feed/' },
+    { name: 'NPR Business', url: 'https://feeds.npr.org/1006/rss.xml' },
+  ],
+};
+
 // Cache for RSS feeds
 const feedCache = {};
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
@@ -473,16 +528,17 @@ app.post('/api/refresh', async (req, res) => {
   // on refresh without a server restart.
   FEED_CATEGORIES.Reddit = loadRedditFeeds();
 
-  // Refresh weather, schedule, and world weather in parallel
+  // Refresh weather, schedule, world weather, and stocks in parallel
   const results = await Promise.allSettled([
     refreshWeather().then(() => console.log('[Refresh] Weather data updated')),
     refreshSchedule().then(() => console.log('[Refresh] Schedule data updated')),
     refreshWorldWeather().then(() => console.log('[Refresh] World weather updated')),
+    refreshStocks().then(() => console.log('[Refresh] Stocks updated')),
   ]);
 
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
-      const name = ['Weather', 'Schedule', 'World weather'][i] || 'Task';
+      const name = ['Weather', 'Schedule', 'World weather', 'Stocks'][i] || 'Task';
       console.error(`[Refresh] ${name} refresh failed:`, r.reason?.message);
     }
   });
@@ -493,7 +549,9 @@ app.post('/api/refresh', async (req, res) => {
 // API: Get news feeds by category
 app.get('/api/news/:category', async (req, res) => {
   const category = req.params.category;
-  const feeds = FEED_CATEGORIES[category];
+  // Serve both the main page's sections and the BizNews World/US sections
+  // (names don't overlap, so one handler covers both pages).
+  const feeds = FEED_CATEGORIES[category] || BIZ_FEED_CATEGORIES[category];
   if (!feeds) {
     return res.status(404).json({ error: 'Category not found' });
   }
@@ -586,6 +644,11 @@ app.get('/api/news-categories', (req, res) => {
   res.json(Object.keys(FEED_CATEGORIES));
 });
 
+// API: BizNews page news sections (World / US).
+app.get('/api/biz-news-categories', (req, res) => {
+  res.json(Object.keys(BIZ_FEED_CATEGORIES));
+});
+
 // API: Weather data (served from static JSON generated at build time)
 app.get('/api/weather', (req, res) => {
   const weatherPath = path.join(__dirname, 'public', 'data', 'weather.json');
@@ -603,6 +666,129 @@ app.get('/api/world-weather', (req, res) => {
     res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
   } else {
     res.status(404).json({ error: 'World weather data not yet generated' });
+  }
+});
+
+// API: Live business-TV stream for the BizNews page.
+//
+// CNBC's own player (cnbc.com/live-tv) cannot be embedded — its CSP allows
+// only *.cnbc.com frame ancestors — and the cable channel requires a
+// TV-provider sign-in. CNBC does, however, run a free live stream on
+// YouTube, which is embeddable. YouTube's `live_stream?channel=` embed is
+// unreliable, so we resolve the channel's CURRENT live video id from its
+// /live page and hand the client that specific video.
+//
+// If CNBC happens not to be streaming, we fall back to another free live
+// business channel and label it honestly (`isFallback` + `channel`), so the
+// panel always has live business TV rather than an error frame.
+const LIVE_TV_SOURCES = [
+  { channel: 'CNBC',             url: 'https://www.youtube.com/@CNBC/live' },
+  { channel: 'Bloomberg Television', url: 'https://www.youtube.com/@markets/live' },
+  { channel: 'Yahoo Finance',    url: 'https://www.youtube.com/@YahooFinance/live' },
+];
+let liveTvCache = null;
+let liveTvBlocked = null;   // live but embedding-disabled (for a watch link)
+const LIVE_TV_TTL = 10 * 60 * 1000;
+
+const YT_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
+
+async function resolveLiveVideo(url) {
+  const res = await fetch(url, { headers: { 'User-Agent': YT_UA }, timeout: 12000, redirect: 'follow' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const html = await res.text();
+  // Only treat it as live if the page advertises an active broadcast.
+  const isLive = /"isLiveNow":true|hlsManifestUrl|"isLive":true/.test(html);
+  const vid = (html.match(/"videoId":"([A-Za-z0-9_-]{11})"/) || [])[1];
+  const title = (html.match(/<meta name="title" content="([^"]{0,140})"/) || [])[1] || '';
+  if (!isLive || !vid) return null;
+  // Many news networks disable embedding on their live streams. Check before
+  // handing the client an embed URL, so the UI can show an honest
+  // "watch on the network's site" card instead of a broken player frame.
+  let embedAllowed = false;
+  try {
+    const er = await fetch(`https://www.youtube.com/embed/${vid}`, { headers: { 'User-Agent': YT_UA }, timeout: 12000 });
+    const et = await er.text();
+    embedAllowed = /"playableInEmbed":true/.test(et) && !/"status":"UNPLAYABLE"/.test(et);
+  } catch (_) { /* treat as not embeddable */ }
+  return { videoId: vid, title, embedAllowed };
+}
+
+app.get('/api/live-tv', async (req, res) => {
+  if (liveTvCache && Date.now() - liveTvCache.time < LIVE_TV_TTL) {
+    return res.json(liveTvCache.data);
+  }
+  for (let i = 0; i < LIVE_TV_SOURCES.length; i++) {
+    const src = LIVE_TV_SOURCES[i];
+    try {
+      const found = await resolveLiveVideo(src.url);
+      // Only accept a source we can actually embed; otherwise keep looking.
+      if (found && found.embedAllowed) {
+        const data = {
+          channel: src.channel,
+          isFallback: i > 0,
+          videoId: found.videoId,
+          title: found.title,
+          embedUrl: `https://www.youtube.com/embed/${found.videoId}?autoplay=1&mute=1&playsinline=1&rel=0`,
+          watchUrl: src.channel === 'CNBC' ? 'https://www.cnbc.com/live-tv/' : `https://www.youtube.com/watch?v=${found.videoId}`,
+        };
+        liveTvCache = { time: Date.now(), data };
+        console.log(`[LiveTV] ${src.channel} live+embeddable: ${found.videoId}${i > 0 ? ' (fallback)' : ''}`);
+        return res.json(data);
+      }
+      if (found) {
+        console.log(`[LiveTV] ${src.channel} is live (${found.videoId}) but embedding is disabled`);
+        // Remember it so the UI can offer a direct watch link for CNBC.
+        if (i === 0) liveTvBlocked = { channel: src.channel, videoId: found.videoId };
+      }
+    } catch (e) {
+      console.error(`[LiveTV] ${src.channel} lookup failed: ${e.message}`);
+    }
+  }
+  // Nothing embeddable. Report CNBC with no embed URL; include a direct
+  // YouTube watch link if CNBC is live but blocks embedding, so the UI can
+  // offer a working way to watch.
+  const data = {
+    channel: 'CNBC',
+    isFallback: false,
+    videoId: liveTvBlocked ? liveTvBlocked.videoId : null,
+    embedUrl: null,
+    embedBlocked: !!liveTvBlocked,
+    watchUrl: 'https://www.cnbc.com/live-tv/',
+    youtubeUrl: liveTvBlocked ? `https://www.youtube.com/watch?v=${liveTvBlocked.videoId}` : null,
+  };
+  liveTvCache = { time: Date.now(), data };
+  res.json(data);
+});
+
+// API: Stock indices + sector heat map (served from cached stocks.json).
+app.get('/api/stocks', (req, res) => {
+  const p = path.join(__dirname, 'public', 'data', 'stocks.json');
+  if (fs.existsSync(p)) {
+    res.json(JSON.parse(fs.readFileSync(p, 'utf8')));
+  } else {
+    res.status(404).json({ error: 'Stock data not yet generated' });
+  }
+});
+
+// API: Historical series for one symbol (for the on-select chart). Cached in
+// memory briefly so repeated selections don't re-hit Yahoo.
+const stockHistoryCache = {};
+const STOCK_HISTORY_TTL = 10 * 60 * 1000;
+app.get('/api/stock-history/:symbol', async (req, res) => {
+  const symbol = req.params.symbol;
+  const range = req.query.range || '1mo';
+  const key = `${symbol}|${range}`;
+  const cached = stockHistoryCache[key];
+  if (cached && Date.now() - cached.time < STOCK_HISTORY_TTL) {
+    return res.json(cached.data);
+  }
+  try {
+    const data = await fetchStockHistory(symbol, range);
+    stockHistoryCache[key] = { time: Date.now(), data };
+    res.json(data);
+  } catch (e) {
+    console.error(`[StockHistory] ${symbol}: ${e.message}`);
+    res.status(502).json({ error: 'Failed to fetch history' });
   }
 });
 
@@ -796,4 +982,13 @@ app.get('/api/pivotal-gif', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`MarckNetVision Dashboard running at http://localhost:${PORT}`);
+
+  // Keep the BizNews market data fresh: always refresh on server start
+  // (so a restart yields current quotes, not whatever was cached in the
+  // image), then refresh every 10 minutes. A full refresh via
+  // POST /api/refresh also re-runs it. See stocks-scraper.js for the
+  // gentle, rate-limit-aware fetching.
+  const kickStocks = () => refreshStocks().catch(e => console.error('[Stocks] refresh failed:', e.message));
+  setTimeout(kickStocks, 2000);
+  setInterval(kickStocks, 10 * 60 * 1000);
 });

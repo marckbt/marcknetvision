@@ -286,7 +286,12 @@ function closeNewsPopup() {
 
 async function initNews() {
   try {
-    const res = await fetch('/api/news-categories');
+    // The BizNews page has its own two business sections (World / US);
+    // the main page uses the standard section list.
+    const categoriesUrl = window.MNV_PAGE === 'biznews'
+      ? '/api/biz-news-categories'
+      : '/api/news-categories';
+    const res = await fetch(categoriesUrl);
     const categories = await res.json();
     allNewsCategoriesList = categories;
     const tabsContainer = document.getElementById('newsCategoryTabs');
@@ -306,9 +311,9 @@ async function initNews() {
       loadNewsCategory(categories[0]);
     }
 
-    // Update stat
-    const totalSources = categories.reduce((sum, cat) => sum + 5, 0); // approximate
-    document.getElementById('statSources').textContent = categories.length + ' feeds';
+    // Update stat (absent on topic pages like /biznews — guard for null).
+    const statSourcesEl = document.getElementById('statSources');
+    if (statSourcesEl) statSourcesEl.textContent = categories.length + ' feeds';
   } catch (e) {
     document.getElementById('newsScrollArea').innerHTML =
       '<div class="loading-spinner">Failed to connect to server</div>';
@@ -1199,7 +1204,7 @@ async function loadSchedule() {
     const res = await fetch('/api/schedule');
     const data = await res.json();
     cachedScheduleData = data;
-    document.getElementById('statSports').textContent = data.length;
+    { const el = document.getElementById('statSports'); if (el) el.textContent = data.length; }
     if (isSwapped) {
       renderEventsSidebar(data);
     } else {
@@ -2434,7 +2439,8 @@ async function applyWeatherSwap() {
   const track = document.getElementById('tickerTrack');
 
   if (isWeatherSwapped) {
-    btn.classList.add('swapped');
+    // The swap button is absent on pages that pin this layout (e.g. /biznews).
+    if (btn) btn.classList.add('swapped');
     titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 4v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> EVENTS';
     // Hide location tabs in events mode (no use for them); show event sort.
     locationTabs.style.display = 'none';
@@ -2449,7 +2455,7 @@ async function applyWeatherSwap() {
       try {
         const res = await fetch('/api/schedule');
         cachedScheduleData = await res.json();
-        document.getElementById('statSports').textContent = cachedScheduleData.length;
+        { const el = document.getElementById('statSports'); if (el) el.textContent = cachedScheduleData.length; }
       } catch (e) { /* ignore */ }
     }
 
@@ -2469,7 +2475,7 @@ async function applyWeatherSwap() {
     document.body.classList.add('weather-swapped');
     startWeatherCycle();
   } else {
-    btn.classList.remove('swapped');
+    if (btn) btn.classList.remove('swapped');
     titleEl.innerHTML = '<svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> WEATHER';
     locationTabs.style.display = '';
     const sortCtl = document.getElementById('weatherEventSortControls');
@@ -2492,6 +2498,14 @@ async function applyWeatherSwap() {
 // while reusing the same card markup).
 function renderEventsIntoArea(items, areaEl) {
   if (!areaEl) return;
+  // On the BizNews page the middle column shows stock markets instead of
+  // events. biznews.js provides window.bizRenderMarkets(); delegate to it so
+  // every path that would render events here renders markets instead.
+  if (window.MNV_PAGE === 'biznews' && areaEl.id === 'weatherScrollArea' &&
+      typeof window.bizRenderMarkets === 'function') {
+    window.bizRenderMarkets(areaEl);
+    return;
+  }
   const sorted = sortEvents(items);
   if (!sorted.length) {
     areaEl.innerHTML = '<div class="loading-spinner">No events scheduled</div>';
@@ -2515,14 +2529,19 @@ function renderEventsIntoArea(items, areaEl) {
   }).join('');
 }
 
-document.getElementById('weatherSwapToggle').addEventListener('click', async () => {
-  const btn = document.getElementById('weatherSwapToggle');
-  btn.disabled = true;
-  isWeatherSwapped = !isWeatherSwapped;
-  localStorage.setItem('mnv-weather-swapped', isWeatherSwapped ? '1' : '0');
-  await applyWeatherSwap();
-  btn.disabled = false;
-});
+// The swap toggle is absent on pages that pin the layout (e.g. /biznews).
+{
+  const wxSwapBtn = document.getElementById('weatherSwapToggle');
+  if (wxSwapBtn) {
+    wxSwapBtn.addEventListener('click', async () => {
+      wxSwapBtn.disabled = true;
+      isWeatherSwapped = !isWeatherSwapped;
+      localStorage.setItem('mnv-weather-swapped', isWeatherSwapped ? '1' : '0');
+      await applyWeatherSwap();
+      wxSwapBtn.disabled = false;
+    });
+  }
+}
 
 // =====================================================================
 // Auto-scroll for the weather sidebar. Behavior:

@@ -238,8 +238,9 @@ RUN runuser -u "${APP_USER}" -- bash -c "\
         cd '${APP_DIR}' && \
         node -e \"require('./weather-scraper').refreshWeather().then(()=>console.log('Weather ok')).catch(e=>{console.error(e.message);process.exit(0)})\" && \
         node -e \"require('./schedule-scraper').refreshSchedule().then(()=>console.log('Schedule ok')).catch(e=>{console.error(e.message);process.exit(0)})\" && \
-        node -e \"require('./world-weather-scraper').refreshWorldWeather().then(()=>console.log('World weather ok')).catch(e=>{console.error(e.message);process.exit(0)})\" \
-    " || echo "[build] initial data fetch skipped (no network) — cron will populate at runtime"
+        node -e \"require('./world-weather-scraper').refreshWorldWeather().then(()=>console.log('World weather ok')).catch(e=>{console.error(e.message);process.exit(0)})\" && \
+        node -e \"require('./stocks-scraper').refreshStocks().then(()=>console.log('Stocks ok')).catch(e=>{console.error(e.message);process.exit(0)})\" \
+    " || echo "[build] initial data fetch skipped (no network) — cron/interval will populate at runtime"
 
 # ---------------------------------------------------------------------------
 # Step 8: Enable services for the optional systemd-mode entrypoint
