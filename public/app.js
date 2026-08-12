@@ -328,19 +328,22 @@ const LOCATION_COORDS = {
   cincinnati: { lat: 39.1031, lon: -84.5120 },
 };
 
+// Weather radar — Windy's radar layer, centered on the requested location.
+// (windy.com itself can't be framed: it sends
+// `frame-ancestors 'self' *.windy.com`. embed.windy.com is Windy's official
+// embeddable endpoint and allows it, so we use that with the same
+// radar overlay + zoom as the full site.)
 function buildRadarUrl(lat, lon) {
-  const settings = {
-    agenda: { id: 'local', center: [lon, lat], location: null, zoom: 10, filter: null, layer: 'sr_bref', station: null },
-    animating: false, base: 'standard', artcc: false, county: false, cwa: false, rfc: false, state: false, menu: true, shortFusedOnly: true,
-    opacity: { alerts: 0.8, local: 0.6, localStations: 0.8, national: 0.6 }
-  };
-  return 'https://radar.weather.gov/?settings=v1_' + encodeURIComponent(btoa(JSON.stringify(settings)));
+  return buildWindyUrl(lat, lon, 'radar');
 }
 
 function buildWindyUrl(lat, lon, overlay = 'satellite') {
-  // Windy embed centered on the given location with configurable overlay
-  // CAPE index zooms in closer for better detail
-  const zoom = overlay === 'cape' ? 9 : 7;
+  // Windy embed centered on the given location with configurable overlay.
+  // Radar and CAPE zoom in closer for better local detail.
+  const zoom = (overlay === 'cape' || overlay === 'radar') ? 9 : 7;
+  // Encode the location so it is always a well-formed query value.
+  lat = encodeURIComponent(lat);
+  lon = encodeURIComponent(lon);
   return `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&width=650&height=450&zoom=${zoom}&level=surface&overlay=${overlay}&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1`;
 }
 
@@ -936,16 +939,9 @@ async function showWeatherRadar() {
     }
   }
 
-  const settings = {
-    agenda: { id: 'local', center: [lon, lat], location: null, zoom: 10, filter: null, layer: 'sr_bref', station: null },
-    animating: false, base: 'standard', artcc: false, county: false, cwa: false, rfc: false, state: false, menu: true, shortFusedOnly: true,
-    opacity: { alerts: 0.8, local: 0.6, localStations: 0.8, national: 0.6 }
-  };
-  const encoded = btoa(JSON.stringify(settings));
-  const radarUrl = 'https://radar.weather.gov/?settings=v1_' + encodeURIComponent(encoded);
-
-  document.getElementById('weatherscanFrame').src = radarUrl;
-  document.querySelector('#weatherscanContent h2').textContent = 'NWS Weather Radar';
+  // Windy radar layer centered on the resolved location.
+  document.getElementById('weatherscanFrame').src = buildRadarUrl(lat, lon);
+  document.querySelector('#weatherscanContent h2').textContent = 'Weather Radar';
   showPanel('weatherscanPanel');
 }
 
@@ -1288,6 +1284,11 @@ function renderTicker(items) {
   // While the World weather view owns the ticker, don't let a schedule
   // load/refresh overwrite it with sports events.
   if (isWorldWeatherActive) { renderWorldWeatherInTicker(); return; }
+  // The BizNews ticker carries market quotes, not sports events.
+  if (window.MNV_PAGE === 'biznews') {
+    if (typeof window.bizRenderTicker === 'function') window.bizRenderTicker();
+    return;
+  }
   const track = document.getElementById('tickerTrack');
   const sorted = sortEvents(items);
   if (!sorted.length) {
@@ -2028,10 +2029,13 @@ async function fetchCurrentWeather() {
     const res = await fetch(`/api/current-weather?lat=${lat}&lon=${lon}`);
     const data = await res.json();
     if (data.temperature != null) {
-      // Bottom-right current conditions: use real time of day so we show
-      // the moon at night and the sun during the day.
-      document.getElementById('conditionsIcon').innerHTML = getWxIcon(data.description, 'auto');
-      document.getElementById('conditionsTemp').innerHTML = data.temperature + '&deg;F';
+      // Current conditions in the ticker: use real time of day so we show
+      // the moon at night and the sun during the day. These elements are
+      // absent on pages with no weather in the ticker (e.g. /biznews).
+      const iconEl = document.getElementById('conditionsIcon');
+      const tempEl = document.getElementById('conditionsTemp');
+      if (iconEl) iconEl.innerHTML = getWxIcon(data.description, 'auto');
+      if (tempEl) tempEl.innerHTML = data.temperature + '&deg;F';
     }
   } catch (e) {
     console.error('[CurrentWX] Failed to fetch:', e);
@@ -2310,6 +2314,11 @@ function setTickerWeatherLabel(name) {
 }
 
 function startWeatherCycle() {
+  // The BizNews page shows market data in the ticker, never weather.
+  if (window.MNV_PAGE === 'biznews') {
+    if (typeof window.bizRenderTicker === 'function') window.bizRenderTicker();
+    return;
+  }
   wxCycleActive = true;
   wxCycleIndex = 0;
   renderWeatherCycleLocation();

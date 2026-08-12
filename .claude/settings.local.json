@@ -66,7 +66,8 @@
       "Bash(node stocks-scraper.js)",
       "Bash(cd \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web\"; echo \"=== server log: feed failures + stale drops ===\"; grep -iE \"failed to fetch|dropped .* stale\" /tmp/mnv_biz2.log | head -20)",
       "Bash(pkill -f \"node stocks-scraper.js\")",
-      "Bash(pkill -f \"node server.js\")"
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(node -e 'try{const d=require\\(\"./public/data/stocks.json\"\\);console.log\\(\"  keys:\",Object.keys\\(d\\).join\\(\", \"\\)\\);[\"indexes\",\"commodities\",\"stocks\",\"etfs\",\"sectors\"].forEach\\(k=>console.log\\(\"   \",k+\":\",\\(d[k]||[]\\).length\\)\\);}catch\\(e\\){console.log\\(\"  missing:\",e.message\\)}')"
     ]
   }
 }

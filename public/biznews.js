@@ -14,7 +14,8 @@
   let stocksData = null;
   let historyRange = '1mo';
   let historySymbol = null;          // symbol currently charted
-  let view = 'live';                 // 'live' | 'heat' | 'history'
+  let view = 'live';                 // main panel: 'live' | 'history'
+  let marketsView = 'list';          // markets column: 'list' | 'heat'
 
   // CNBC's own live-tv page can't be embedded (CSP allows only *.cnbc.com)
   // and needs a TV-provider sign-in, so the server resolves CNBC's free
@@ -38,8 +39,8 @@
       console.error('[BizNews] loadStocks failed:', e.message);
     }
     renderMarkets($('weatherScrollArea'));
-    if (view === 'heat') renderHeatMap();
-    else if (view === 'history' && historySymbol) showStockHistory(historySymbol, historyRange);
+    renderTickerQuotes();
+    if (view === 'history' && historySymbol) showStockHistory(historySymbol, historyRange);
   }
 
   // ----- Middle column: market groups -----
@@ -48,10 +49,18 @@
     const pct = r.changePercent == null ? '' : (r.changePercent > 0 ? '+' : '') + r.changePercent + '%';
     const chg = r.change == null ? '' : (r.change > 0 ? '+' : '') + fmtNum(r.change);
     const active = r.symbol === historySymbol ? ' active' : '';
+    // A carried-forward quote (last refresh was rate limited) is dimmed and
+    // marked so an old price is never shown as if it were live.
+    const stale = r.stale && r.price != null;
+    const staleCls = stale ? ' stale' : '';
+    const staleMark = stale ? '<span class="market-stale-dot" aria-hidden="true">•</span>' : '';
+    const tip = stale
+      ? `${r.name} — last known price (awaiting refresh) · click for history`
+      : `${r.name} — click for history`;
     return `
-      <div class="market-row${active}" onclick="bizShowHistory('${esc(r.symbol)}')" title="${esc(r.name)} — click for history">
+      <div class="market-row${active}${staleCls}" onclick="bizShowHistory('${esc(r.symbol)}')" title="${esc(tip)}">
         <div class="market-name">
-          <span class="market-ticker">${esc(r.ticker || '')}</span>
+          <span class="market-ticker">${esc(r.ticker || '')}${staleMark}</span>
           <span class="market-label">${esc(r.name)}</span>
         </div>
         <div class="market-figures ${cls}">
@@ -68,6 +77,7 @@
 
   // Exposed to app.js via window.bizRenderMarkets — app.js calls this
   // wherever it would otherwise render sports events into this column.
+  // Renders either the quote list or the heat map, per marketsView.
   function renderMarkets(areaEl) {
     areaEl = areaEl || $('weatherScrollArea');
     if (!areaEl) return;
@@ -75,6 +85,8 @@
       areaEl.innerHTML = '<div class="loading-spinner">Loading markets…</div>';
       return;
     }
+    syncMarketViewToggle();
+    if (marketsView === 'heat') { renderHeatMapInto(areaEl); return; }
     const idx = stocksData.indexes || [];
     areaEl.innerHTML =
       group('US Markets',   idx.filter(i => i.region === 'US')) +
@@ -84,6 +96,89 @@
       group('ETFs',         stocksData.etfs);
   }
   window.bizRenderMarkets = renderMarkets;
+
+  // ----- Markets column: sector + commodity heat map -----
+  function heatCells(rows) {
+    return (rows || []).slice()
+      .sort((a, b) => (b.changePercent || 0) - (a.changePercent || 0))
+      .map(r => {
+        const pct = r.changePercent == null ? null : r.changePercent;
+        return `<div class="heat-cell" style="background:${heatColor(pct || 0)}"
+                     onclick="bizShowHistory('${esc(r.symbol)}')"
+                     title="${esc(r.name)} — click for history">
+          <div class="heat-name">${esc(r.name)}</div>
+          <div class="heat-pct">${pct == null ? '--' : (pct > 0 ? '+' : '') + pct + '%'}</div>
+        </div>`;
+      }).join('');
+  }
+
+  function renderHeatMapInto(areaEl) {
+    if (!areaEl) return;
+    const sectors = stocksData && stocksData.sectors;
+    const commodities = stocksData && stocksData.commodities;
+    if (!Array.isArray(sectors) && !Array.isArray(commodities)) {
+      areaEl.innerHTML = '<div class="loading-spinner">Loading heat map…</div>';
+      return;
+    }
+    areaEl.innerHTML =
+      (Array.isArray(sectors) && sectors.length
+        ? `<div class="market-group-label">S&amp;P 500 Sectors</div><div class="heat-grid heat-grid-col">${heatCells(sectors)}</div>` : '') +
+      (Array.isArray(commodities) && commodities.length
+        ? `<div class="market-group-label">Commodities</div><div class="heat-grid heat-grid-col">${heatCells(commodities)}</div>` : '');
+  }
+
+  // Keep the header toggle's label/state in sync with marketsView.
+  function syncMarketViewToggle() {
+    const btn = $('marketViewToggle');
+    if (!btn) return;
+    const heat = marketsView === 'heat';
+    btn.classList.toggle('auto-on', heat);
+    const lbl = btn.querySelector('.market-view-label');
+    if (lbl) lbl.textContent = heat ? 'Markets' : 'Heat Map';
+    btn.title = heat ? 'Show market quotes' : 'Show sector & commodity heat map';
+  }
+
+  // ----- Bottom ticker: scrolling market quotes -----
+  // Same data as the Markets column. Uses the shared .ticker-track marquee
+  // (content duplicated so the loop is seamless); app.js routes the ticker
+  // here on this page instead of weather/sports.
+  function tickerQuote(r) {
+    const cls = r.direction === 'up' ? 'up' : r.direction === 'down' ? 'down' : 'flat';
+    const pct = r.changePercent == null ? '' : (r.changePercent > 0 ? '+' : '') + r.changePercent + '%';
+    return `<div class="ticker-item ticker-quote ${cls}" onclick="bizShowHistory('${esc(r.symbol)}')" title="${esc(r.name)} — click for history">
+      <span class="tq-name">${esc(r.ticker || r.name)}</span>
+      <span class="tq-price">${fmtNum(r.price)}</span>
+      <span class="tq-change">${arrow(r.direction)} ${pct}</span>
+    </div>`;
+  }
+
+  function renderTickerQuotes() {
+    const track = $('tickerTrack');
+    if (!track) return;
+    if (!stocksData) {
+      track.innerHTML = '<span class="ticker-loading">Loading market data…</span>';
+      return;
+    }
+    const rows = [
+      ...(stocksData.indexes || []),
+      ...(stocksData.commodities || []),
+      ...(stocksData.stocks || []),
+      ...(stocksData.etfs || []),
+    ].filter(r => r && r.price != null);
+    if (!rows.length) {
+      track.innerHTML = '<span class="ticker-loading">Market data unavailable</span>';
+      return;
+    }
+    const html = rows.map(tickerQuote).join('');
+    track.style.transform = '';      // clear any leftover weather-cycle transform
+    track.innerHTML = html + html;   // duplicate for a seamless loop
+    requestAnimationFrame(() => {
+      const total = track.scrollWidth / 2;
+      if (!total) return;
+      track.style.animationDuration = Math.max(60, total / 60) + 's';
+    });
+  }
+  window.bizRenderTicker = renderTickerQuotes;
 
   // ----- Main panel header (view switcher + range buttons) -----
   function panelHeader(title) {
@@ -97,7 +192,6 @@
         <h2>${esc(title)}</h2>
         <div class="market-panel-actions">
           <button class="market-view-btn${view === 'live' ? ' active' : ''}" onclick="showCNBCLive()">&#9654; CNBC Live</button>
-          <button class="market-view-btn${view === 'heat' ? ' active' : ''}" onclick="bizShowHeatMap()">&#9638; Sector Heat Map</button>
           ${rangeBtns}
         </div>
       </div>`;
@@ -165,32 +259,8 @@
        </div>`;
   }
 
-  // ----- View: sector heat map -----
-  function renderHeatMap() {
-    view = 'heat';
-    historySymbol = null;
-    const el = $('marketPanelContent');
-    if (!el) return;
-    if (typeof showPanel === 'function') showPanel('marketPanel');
-    renderMarkets($('weatherScrollArea'));
-    if (!stocksData || !Array.isArray(stocksData.sectors)) {
-      el.innerHTML = panelHeader('Sector Heat Map') + '<div class="loading-spinner">Loading sectors…</div>';
-      return;
-    }
-    const cells = stocksData.sectors.slice()
-      .sort((a, b) => (b.changePercent || 0) - (a.changePercent || 0))
-      .map(s => {
-        const pct = s.changePercent == null ? null : s.changePercent;
-        return `<div class="heat-cell" style="background:${heatColor(pct || 0)}">
-          <div class="heat-name">${esc(s.name)}</div>
-          <div class="heat-pct">${pct == null ? '--' : (pct > 0 ? '+' : '') + pct + '%'}</div>
-        </div>`;
-      }).join('');
-    const updated = stocksData.lastUpdated ? new Date(stocksData.lastUpdated).toLocaleString() : '';
-    el.innerHTML = panelHeader('Sector Heat Map') +
-      `<p class="market-subtitle">S&amp;P 500 sectors, today’s move${updated ? ' · updated ' + esc(updated) : ''}</p>` +
-      `<div class="heat-grid">${cells}</div>`;
-  }
+  // (The sector heat map now lives in the Markets column — see
+  // renderHeatMapInto() — toggled from the button beside Auto-Scroll.)
 
   // Red→green background based on % move (clamped to ~±3%).
   function heatColor(pct) {
@@ -263,7 +333,11 @@
   // ----- Global handlers (used by inline onclick) -----
   window.bizShowHistory = (sym) => showStockHistory(sym);
   window.bizSetRange = (r) => { historyRange = r; if (historySymbol) showStockHistory(historySymbol, r); };
-  window.bizShowHeatMap = () => renderHeatMap();
+  // Markets column: switch between the quote list and the heat map.
+  window.bizToggleMarketView = () => {
+    marketsView = marketsView === 'heat' ? 'list' : 'heat';
+    renderMarkets($('weatherScrollArea'));
+  };
   // Called from the Live Video card and the "CNBC Live" header button. This
   // runs from a real click, so the popup is not blocked.
   window.showCNBCLive = () => {
@@ -291,16 +365,13 @@
     relabelSidebar();
     renderMarkets($('weatherScrollArea'));  // loading state
 
+    renderTickerQuotes();                   // ticker loading state
+
     // Open CNBC Live in its own window on page load. Browsers block
-    // window.open() without a user gesture, so if it's blocked we show the
-    // live card with a one-click "Open CNBC Live" button; if it opened, the
-    // main panel is free for the sector heat map.
+    // window.open() without a user gesture, so if it's blocked the live
+    // card offers a one-click "Open CNBC Live" button.
     const popup = openCNBCPopup(CNBC_SITE);
-    if (popup) {
-      renderHeatMap();
-    } else {
-      renderLiveCard('blocked');
-    }
+    renderLiveCard(popup ? 'opened' : 'blocked');
 
     // Resolve CNBC's free YouTube live stream so the card can offer it as a
     // no-sign-in alternative (CNBC.com's channel may want a TV provider).

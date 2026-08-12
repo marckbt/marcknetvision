@@ -718,8 +718,11 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
 
 /* During weather-swap the bottom ticker is driven by the Web Animations
    API (single horizontal pass per location), so disable the default
-   infinite CSS marquee to avoid the two fighting over the transform. */
-body.weather-swapped .ticker-track {
+   infinite CSS marquee to avoid the two fighting over the transform.
+   The BizNews page also sets .weather-swapped (to pin markets in the
+   middle column) but drives its ticker with the CSS marquee, so it is
+   excluded here — otherwise its market ticker would sit still. */
+body.weather-swapped:not(.biznews-page) .ticker-track {
   animation: none;
 }
 
@@ -2452,4 +2455,72 @@ button.biznews-back-link {
   background: transparent;
   cursor: pointer;
   font-family: inherit;
+}
+
+/* ===== BIZNEWS TICKER (market quotes; no weather) ===== */
+/* MarckNet BizNews logo pinned to the bottom-LEFT of the ticker; the
+   clock/DOW block sits on the right (its default .ticker-conditions
+   border-left already separates it). */
+.ticker-biz-logo {
+  width: 210px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  border-right: 1px solid var(--border-color);
+}
+.ticker-biz-logo svg { width: 100%; height: auto; }
+
+/* Scrolling quotes */
+.ticker-quote {
+  gap: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ticker-quote:hover { background: var(--bg-card-hover); }
+.tq-name {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+.tq-price { font-weight: 700; font-size: 15px; color: var(--text-primary); }
+.tq-change { font-weight: 700; font-size: 14px; }
+.ticker-quote.up   .tq-change { color: #10b981; }
+.ticker-quote.down .tq-change { color: #ef4444; }
+.ticker-quote.flat .tq-change { color: var(--text-muted); }
+
+/* Heat map inside the narrow Markets column: 2-up grid, compact cells. */
+.heat-grid-col {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.heat-grid-col .heat-cell {
+  min-height: 58px;
+  padding: 10px 8px;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.heat-grid-col .heat-cell:hover { transform: translateY(-1px); }
+.heat-grid-col .heat-name { font-size: 11px; margin-bottom: 3px; }
+.heat-grid-col .heat-pct  { font-size: 14px; }
+
+@media (max-width: 900px) {
+  .ticker-biz-logo { width: 150px; padding: 0 8px; }
+}
+@media (max-width: 600px) {
+  .ticker-biz-logo { display: none; }
+}
+
+/* Carried-forward (stale) quote: dimmed with a small marker so a last-known
+   price is visibly distinct from a live one. */
+.market-row.stale { opacity: 0.72; }
+.market-stale-dot {
+  color: var(--text-muted);
+  margin-left: 4px;
+  font-size: 13px;
+  line-height: 1;
 }

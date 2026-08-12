@@ -269,9 +269,11 @@ const CATEGORY_LIMITS = {
   // Reddit: at most 10 posts per subreddit, nothing older than 48 hours.
   Reddit: { perFeed: 10, maxAgeMs: 48 * 60 * 60 * 1000 },
   // BizNews sections: business news moves fast, so keep a tighter window
-  // and a few more headlines per source.
+  // and a few more headlines per source. 'US Business' is the same source
+  // list surfaced as a category on the main page.
   World: { perFeed: 6, maxAgeMs: 48 * 60 * 60 * 1000 },
   US:    { perFeed: 6, maxAgeMs: 48 * 60 * 60 * 1000 },
+  'US Business': { perFeed: 6, maxAgeMs: 48 * 60 * 60 * 1000 },
 };
 function limitsFor(category) {
   return CATEGORY_LIMITS[category] || DEFAULT_CATEGORY_LIMITS;
@@ -423,6 +425,10 @@ const FEED_CATEGORIES = {
     { name: 'DSLReports', url: 'http://www.broadbandreports.com/rss20.xml' },
     { name: 'BGR', url: 'https://feeds.feedburner.com/TheBoyGeniusReport' },
     { name: 'Laptopmag', url: 'https://www.laptopmag.com/feeds/all' },
+    { name: 'Techmeme', url: 'https://www.techmeme.com/feed.xml' },
+    { name: "Tom's Hardware", url: 'https://www.tomshardware.com/feeds/all' },
+    { name: '404 Media', url: 'https://www.404media.co/rss/' },
+    { name: 'IEEE Spectrum', url: 'https://spectrum.ieee.org/feeds/feed.rss' },
   ],
   Aviation: [
     { name: 'World Airline News', url: 'https://worldairlinenews.com/feed/' },
@@ -461,6 +467,21 @@ const FEED_CATEGORIES = {
     { name: 'AWS Security', url: 'https://aws.amazon.com/blogs/security/feed/' },
     { name: 'r/programming', url: 'https://www.reddit.com/r/programming/.rss' },
     { name: 'Dark Reading IAM', url: 'https://www.darkreading.com/rss_simple.asp?f_n=657&f_ln=Identity%20and%20Access%20Management' },
+    // --- Security news & investigations ---
+    { name: 'Krebs on Security', url: 'https://krebsonsecurity.com/feed/' },
+    { name: 'BleepingComputer', url: 'https://www.bleepingcomputer.com/feed/' },
+    // --- Threat intel & vulnerability research ---
+    { name: 'CISA Advisories', url: 'https://www.cisa.gov/cybersecurity-advisories/all.xml' },
+    { name: 'SANS Internet Storm Center', url: 'https://isc.sans.edu/rssfeed.xml' },
+    { name: 'Google Project Zero', url: 'https://googleprojectzero.blogspot.com/feeds/posts/default' },
+    { name: 'Unit 42', url: 'https://unit42.paloaltonetworks.com/feed/' },
+    { name: 'Cisco Talos', url: 'https://blog.talosintelligence.com/rss/' },
+    // --- AI ---
+    { name: 'OpenAI', url: 'https://openai.com/news/rss.xml' },
+    { name: 'Google DeepMind', url: 'https://deepmind.google/blog/rss.xml' },
+    { name: 'Hugging Face', url: 'https://huggingface.co/blog/feed.xml' },
+    { name: 'Import AI', url: 'https://importai.substack.com/feed' },
+    { name: 'MIT Tech Review AI', url: 'https://www.technologyreview.com/topic/artificial-intelligence/feed' },
   ],
   Federal: [
     { name: 'Nextgov', url: 'https://www.nextgov.com/rss/all/' },
@@ -472,6 +493,14 @@ const FEED_CATEGORIES = {
     { name: 'InsideDefense', url: 'https://insidedefense.com/rss.xml' },
     { name: 'Fifth Domain', url: 'https://feeds.feedburner.com/fifth-domain/home' },
     { name: 'DefenceIQ Cyber', url: 'https://www.defenceiq.com/rss/categories/cyber-defence-and-security' },
+    { name: 'Government Executive', url: 'https://www.govexec.com/rss/all/' },
+    { name: 'Federal News Network', url: 'https://federalnewsnetwork.com/feed/' },
+    { name: 'Defense One', url: 'https://www.defenseone.com/rss/all/' },
+    { name: 'DefenseScoop', url: 'https://defensescoop.com/feed/' },
+    { name: 'MeriTalk', url: 'https://www.meritalk.com/feed/' },
+    { name: 'C4ISRNET', url: 'https://www.c4isrnet.com/arc/outboundfeeds/rss/?outputType=xml' },
+    { name: 'DoD News', url: 'https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=20' },
+    { name: 'CISA Advisories', url: 'https://www.cisa.gov/cybersecurity-advisories/all.xml' },
   ],
 };
 
@@ -515,6 +544,11 @@ const BIZ_FEED_CATEGORIES = {
     { name: 'NPR Business', url: 'https://feeds.npr.org/1006/rss.xml' },
   ],
 };
+
+// Surface the BizNews "US" business section on the main page as its own
+// news category too. Same source list, so the two stay in sync — edit
+// BIZ_FEED_CATEGORIES.US and both pages pick it up.
+FEED_CATEGORIES['US Business'] = BIZ_FEED_CATEGORIES.US;
 
 // Cache for RSS feeds
 const feedCache = {};

@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body class="biznews-page">
   <!-- Mobile-only hamburger that toggles #topControls. Hidden via CSS on
        wider viewports; the controls render inline there. -->
   <button id="mobileMenuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="topControls">
@@ -71,6 +71,9 @@
             <!-- No weather/events swap on this page: markets stay in this
                  column and weather stays in the bottom ticker. -->
             <div class="sidebar-header-actions">
+              <button id="marketViewToggle" class="sidebar-auto-scroll-btn" onclick="bizToggleMarketView()" title="Show sector &amp; commodity heat map">
+                <span class="market-view-label">Heat Map</span>
+              </button>
               <button id="weatherAutoScrollToggle" class="sidebar-auto-scroll-btn" title="Auto-scroll the markets panel">
                 Auto-Scroll <span class="scroll-status">OFF</span>
               </button>
@@ -239,53 +242,39 @@
     </main>
   </div>
 
-  <!-- BOTTOM TICKER -->
+  <!-- BOTTOM TICKER — market data (no weather on this page).
+       Left: MarckNet BizNews logo. Middle: scrolling market quotes.
+       Right: clock + DOW. -->
   <div id="tickerBar">
-    <div class="ticker-logo" id="logoArea">
-      <svg id="mnvLogo" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
+    <div class="ticker-biz-logo" id="bizLogoArea">
+      <svg viewBox="0 0 220 60" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#00b4d8;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#0077b6;stop-opacity:1" />
-          </linearGradient>
-          <linearGradient id="visionGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <linearGradient id="bizTickGrad" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" style="stop-color:#00b4d8" />
-            <stop offset="50%" style="stop-color:#48cae4" />
-            <stop offset="100%" style="stop-color:#90e0ef" />
+            <stop offset="100%" style="stop-color:#0077b6" />
+          </linearGradient>
+          <linearGradient id="bizTickBiz" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#34d399" />
+            <stop offset="100%" style="stop-color:#10b981" />
           </linearGradient>
         </defs>
-        <!-- Signal wave icon -->
-        <path d="M8 40 Q12 10, 20 30 Q28 50, 36 20 Q40 10, 44 30" stroke="url(#logoGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
-        <circle cx="26" cy="28" r="4" fill="url(#logoGrad)" opacity="0.8"/>
-        <!-- Outer ring -->
-        <circle cx="26" cy="28" r="16" stroke="url(#logoGrad)" stroke-width="1.5" fill="none" opacity="0.4"/>
-        <!-- Text -->
-        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#logoGrad)">MARCK</text>
-        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#logoGrad)" dx="58">NET</text>
-        <text x="52" y="42" font-family="'Segoe UI', Arial, sans-serif" font-size="14" font-weight="300" letter-spacing="4" fill="url(#visionGrad)">VISION</text>
-        <!-- Decorative dots -->
-        <circle cx="170" cy="18" r="2" fill="#00b4d8" opacity="0.6"/>
-        <circle cx="178" cy="22" r="1.5" fill="#48cae4" opacity="0.4"/>
-        <circle cx="174" cy="30" r="1" fill="#90e0ef" opacity="0.3"/>
+        <path d="M8 40 Q12 10, 20 30 Q28 50, 36 20 Q40 10, 44 30" stroke="url(#bizTickGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="26" cy="28" r="4" fill="url(#bizTickGrad)" opacity="0.8"/>
+        <circle cx="26" cy="28" r="16" stroke="url(#bizTickGrad)" stroke-width="1.5" fill="none" opacity="0.4"/>
+        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#bizTickGrad)">MARCK</text>
+        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#bizTickGrad)" dx="58">NET</text>
+        <text x="52" y="42" font-family="'Segoe UI', Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="3" fill="url(#bizTickBiz)">BIZNEWS</text>
       </svg>
     </div>
     <div class="ticker-content">
-      <!-- Current weather location label — shown at the top-left of the
-           ticker only while weather-swap is active, cycling as the
-           ticker advances through each location's weekly forecast. -->
-      <div id="tickerWeatherLabel" class="ticker-wx-label" hidden></div>
       <div class="ticker-track" id="tickerTrack">
-        <span class="ticker-loading">Loading sports schedule...</span>
+        <span class="ticker-loading">Loading market data...</span>
       </div>
     </div>
     <div class="ticker-conditions" id="currentConditions">
       <div class="conditions-time-row">
         <span class="conditions-time" id="conditionsTime">--:--</span>
         <span class="conditions-date" id="conditionsDate">--</span>
-      </div>
-      <div class="conditions-wx">
-        <span class="conditions-icon" id="conditionsIcon"></span>
-        <span class="conditions-temp" id="conditionsTemp">--&deg;</span>
       </div>
       <div class="conditions-dow" id="dowIndicator">
         <span class="dow-label">DOW</span>
