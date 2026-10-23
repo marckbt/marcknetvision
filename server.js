@@ -4,6 +4,7 @@ const fetch = require('node-fetch');
 const xml2js = require('xml2js');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 
 const { refreshWeather, fetchNWSAlerts } = require('./weather-scraper');
 const { refreshSchedule } = require('./schedule-scraper');
@@ -366,6 +367,7 @@ app.get(['/', '/index.html'], servePage('index.html'));
 
 // Topic pages (multi-page). Each reuses the main layout with its own content.
 app.get(['/biznews', '/biznews.html'], servePage('biznews.html'));
+app.get(['/wx', '/wx.html'], servePage('wx.html'));
 
 // Version / feature probe — hit this to confirm which build is actually
 // running inside the container (bypasses all browser caching):
@@ -795,6 +797,72 @@ app.get('/api/live-tv', async (req, res) => {
 });
 
 // API: Stock indices + sector heat map (served from cached stocks.json).
+// --- WX page live streams ---------------------------------------------------
+// The WX page's live feeds are famelack channels. Rather than framing the
+// whole famelack site, the page plays just the video in a <video> element,
+// so it needs each channel's direct HLS (.m3u8) stream URL. famelack
+// publishes its channel list — with those URLs — as a gzipped JSON file on
+// GitHub; we look the channel up there by its id (the last segment of the
+// famelack URL). It's resolved at request time (cached) because stream URLs
+// rotate — TWC's manifest path embeds a hash — and the bundled URLs below are
+// only a fallback if GitHub can't be reached.
+const FAMELACK_WEATHER_URL =
+  'https://raw.githubusercontent.com/famelack/famelack-data/main/tv/compressed/categories/weather.json';
+const FAMELACK_TTL = 60 * 60 * 1000;
+let famelackCache = { time: 0, byId: null };
+
+const WX_STREAM_FALLBACK = {
+  '0zAq6komI7uPHX': { name: 'The Weather Channel', sources: { streams: [
+    'https://twcprod-live.twc-tv.com/v1/manifest/b4d4d63a49309cc5140171fb2e92485c31be1e9e/DSP_6228e4760505741a116f1ba2_twcprod-live/6bf09ce5-366b-463c-b67e-c4b799f73c3f/4.m3u8',
+  ] } },
+  'rsgBN1CiczuZvL': { name: 'WeatherNation', sources: { streams: [
+    'https://d2ferbiwcx1539.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-8zd06wicndthf-ssai-prd/WNNationalSamsung/WNNationalSamsung.m3u8',
+    'https://stream.weathernationtv.com/WNTVStirr_eokxldieulowixkdimn/ND1/playlistSCTE35.m3u8',
+  ] } },
+  'CkqK0vHvwZKLiX': { name: 'Sky News Weather', sources: { streams: [
+    'https://distro001-gb-hls1-prd.delivery.skycdp.com/easel_cdn/ngrp:weather_loop.stream_all/playlist.m3u8',
+  ] } },
+};
+
+async function loadFamelackWeather() {
+  if (famelackCache.byId && Date.now() - famelackCache.time < FAMELACK_TTL) {
+    return famelackCache.byId;
+  }
+  const res = await fetch(FAMELACK_WEATHER_URL, { timeout: 15000 });
+  if (!res.ok) throw new Error(`famelack data HTTP ${res.status}`);
+  const buf = await res.buffer();
+  // Gzipped despite the .json name (gzip magic 1f 8b); tolerate plain JSON.
+  const text = (buf[0] === 0x1f && buf[1] === 0x8b)
+    ? zlib.gunzipSync(buf).toString('utf8')
+    : buf.toString('utf8');
+  const list = JSON.parse(text);
+  const byId = {};
+  for (const ch of Array.isArray(list) ? list : []) {
+    if (ch && ch.nanoid) byId[ch.nanoid] = ch;
+  }
+  famelackCache = { time: Date.now(), byId };
+  return byId;
+}
+
+app.get('/api/wx-stream/:id', async (req, res) => {
+  const id = req.params.id;
+  if (!/^[A-Za-z0-9_-]{6,40}$/.test(id)) return res.status(400).json({ error: 'bad id' });
+  let ch = null;
+  try {
+    ch = (await loadFamelackWeather())[id] || null;
+  } catch (e) {
+    console.error('[WxStream] famelack lookup failed:', e.message);
+    if (famelackCache.byId) ch = famelackCache.byId[id] || null;  // stale is fine
+  }
+  if (!ch) ch = WX_STREAM_FALLBACK[id] || null;
+  const streams = (ch && ch.sources && Array.isArray(ch.sources.streams))
+    ? ch.sources.streams.filter(u => /^https:\/\//i.test(u))
+    : [];
+  if (!streams.length) return res.status(404).json({ error: 'stream not found' });
+  res.set('Cache-Control', 'no-store');
+  res.json({ id, name: ch.name || '', streams });
+});
+
 app.get('/api/stocks', (req, res) => {
   const p = path.join(__dirname, 'public', 'data', 'stocks.json');
   if (fs.existsSync(p)) {

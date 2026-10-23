@@ -45,6 +45,10 @@
 #                 with --register-unsafely-without-email.
 #   TLS_STAGING — set to "1" to use Let's Encrypt's staging environment
 #                 (useful for testing without burning rate limits).
+#   TLS_RENEW_DAYS — on startup, renew the existing certificate if it expires
+#                 within this many days. Default 7. (The root crontab also
+#                 renews twice a day; this covers a container that boots
+#                 after being stopped past the normal renewal window.)
 #
 
 FROM registry.access.redhat.com/ubi9/ubi-init:latest
@@ -382,7 +386,50 @@ if [[ -n "${TLS_DOMAIN}" ]]; then
       echo "[entrypoint] in the /etc/letsencrypt volume."
     fi
   else
-    echo "[entrypoint] existing Let's Encrypt cert found — reloading nginx with HTTPS."
+    echo "[entrypoint] existing Let's Encrypt cert found for ${TLS_DOMAIN}."
+
+    # --- Renew on startup if the cert expires soon -------------------------
+    # The root crontab renews twice a day, but a container that has been
+    # stopped for a while can boot with a cert that is nearly (or already)
+    # expired and would serve it until the next cron tick. Check the expiry
+    # up front and renew immediately when it is inside the threshold.
+    #
+    # `openssl x509 -checkend N` exits non-zero when the cert WILL expire
+    # within N seconds. certbot's own renewal window is 30 days, so a cert
+    # inside our (smaller) threshold is always eligible — no --force-renewal
+    # needed, which keeps us clear of Let's Encrypt rate limits.
+    RENEW_DAYS="${TLS_RENEW_DAYS:-7}"
+    RENEW_SECS=$(( RENEW_DAYS * 86400 ))
+
+    CERT_END="$(openssl x509 -enddate -noout -in "${CERT_LIVE}" 2>/dev/null | cut -d= -f2)"
+    if [[ -n "${CERT_END}" ]]; then
+      CERT_END_EPOCH="$(date -d "${CERT_END}" +%s 2>/dev/null || echo 0)"
+      NOW_EPOCH="$(date +%s)"
+      if [[ "${CERT_END_EPOCH}" -gt 0 ]]; then
+        DAYS_LEFT=$(( (CERT_END_EPOCH - NOW_EPOCH) / 86400 ))
+        echo "[entrypoint] certificate expires ${CERT_END} (${DAYS_LEFT} day(s) left)"
+      fi
+    fi
+
+    if openssl x509 -checkend "${RENEW_SECS}" -noout -in "${CERT_LIVE}" >/dev/null 2>&1; then
+      echo "[entrypoint] more than ${RENEW_DAYS} day(s) remaining — no renewal needed."
+    else
+      echo "[entrypoint] certificate expires within ${RENEW_DAYS} day(s) — renewing now..."
+      RENEW_ARGS=( renew --cert-name "${TLS_DOMAIN}" --non-interactive
+                   --deploy-hook "/usr/sbin/nginx -s reload" )
+      if [[ "${TLS_STAGING}" == "1" ]]; then
+        RENEW_ARGS+=( --staging )
+      fi
+      if /usr/bin/certbot "${RENEW_ARGS[@]}"; then
+        echo "[entrypoint] renewal check complete."
+      else
+        echo "[entrypoint] WARNING: renewal failed — continuing with the existing"
+        echo "[entrypoint] certificate. Common causes: port 80 unreachable from the"
+        echo "[entrypoint] public internet, DNS not pointing here, or an LE rate"
+        echo "[entrypoint] limit. The twice-daily cron job will retry."
+      fi
+    fi
+
     # The cert is on disk but the running nginx config doesn't reference it
     # yet. Have certbot re-install (no new request, no rate-limit cost).
     #
@@ -390,6 +437,7 @@ if [[ -n "${TLS_DOMAIN}" ]]; then
     # NOT by domain. Passing -d here makes certbot prompt with
     #   "Which certificate would you like to install?"
     # which fails under --non-interactive. Use --cert-name instead.
+    echo "[entrypoint] configuring nginx for HTTPS..."
     /usr/bin/certbot install --nginx \
       --cert-name "${TLS_DOMAIN}" \
       --non-interactive --redirect \

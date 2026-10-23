@@ -285,6 +285,8 @@ function closeNewsPopup() {
 }
 
 async function initNews() {
+  // The WX page has no news panel.
+  if (window.MNV_PAGE === 'wx') return;
   try {
     // The BizNews page has its own two business sections (World / US);
     // the main page uses the standard section list.
@@ -333,14 +335,17 @@ const LOCATION_COORDS = {
 // `frame-ancestors 'self' *.windy.com`. embed.windy.com is Windy's official
 // embeddable endpoint and allows it, so we use that with the same
 // radar overlay + zoom as the full site.)
-function buildRadarUrl(lat, lon) {
-  return buildWindyUrl(lat, lon, 'radar');
+function buildRadarUrl(lat, lon, zoom) {
+  return buildWindyUrl(lat, lon, 'radar', zoom);
 }
 
-function buildWindyUrl(lat, lon, overlay = 'satellite') {
+function buildWindyUrl(lat, lon, overlay = 'satellite', zoomOverride) {
   // Windy embed centered on the given location with configurable overlay.
-  // Radar and CAPE zoom in closer for better local detail.
-  const zoom = (overlay === 'cape' || overlay === 'radar') ? 9 : 7;
+  // Radar and CAPE zoom in closer for better local detail; callers can
+  // override (e.g. a wide view for World).
+  const zoom = Number.isFinite(zoomOverride)
+    ? zoomOverride
+    : ((overlay === 'cape' || overlay === 'radar') ? 9 : 7);
   // Encode the location so it is always a well-formed query value.
   lat = encodeURIComponent(lat);
   lon = encodeURIComponent(lon);
@@ -658,6 +663,12 @@ function renderWorldWeatherPanel() {
 }
 
 function renderWorldWeatherInTicker() {
+  // On the WX page the weather cycle owns the ticker and already includes
+  // World; writing here would fight its animation.
+  if (window.MNV_PAGE === 'wx') {
+    if (!wxCycleActive) startWeatherCycle();
+    return;
+  }
   const track = document.getElementById('tickerTrack');
   if (!track || !worldWeatherData) return;
   // Flatten all cities across regions into a single scrolling sequence.
@@ -921,27 +932,40 @@ function showDWLive() {
   );
 }
 
-async function showWeatherRadar() {
-  let lat, lon;
-  if (currentLocation && !currentLocation.auto) {
-    lat = currentLocation.lat;
-    lon = currentLocation.lon;
-  } else {
-    lat = 39.167; lon = -84.527;
-    try {
-      const pos = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
-      });
-      lat = parseFloat(pos.coords.latitude.toFixed(3));
-      lon = parseFloat(pos.coords.longitude.toFixed(3));
-    } catch (e) {
-      console.log('[Radar] Geolocation unavailable, using default location');
-    }
+// Where the radar centers: follows the selected weather-location tab.
+// Fixed locations use their coordinates, World shows a wide view, and
+// Browser Location uses the resolved/searched location, then the browser's
+// geolocation, then a US default.
+async function resolveRadarTarget() {
+  const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
+  const loc = activeTab ? activeTab.dataset.location : 'chantilly';
+  const label = activeTab ? activeTab.textContent.trim() : '';
+  if (LOCATION_COORDS[loc]) return { ...LOCATION_COORDS[loc], label };
+  if (loc === 'world') return { lat: 30, lon: -40, zoom: 3, label: 'World' };
+  if (currentLocation && currentLocation.lat != null && currentLocation.lon != null) {
+    return { lat: currentLocation.lat, lon: currentLocation.lon, label: label || currentLocation.city || '' };
   }
+  try {
+    const pos = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 });
+    });
+    return {
+      lat: parseFloat(pos.coords.latitude.toFixed(3)),
+      lon: parseFloat(pos.coords.longitude.toFixed(3)),
+      label: label || 'Your location',
+    };
+  } catch (e) {
+    console.log('[Radar] Geolocation unavailable, using default location');
+    return { lat: 39.167, lon: -84.527, label: label || 'Default location' };
+  }
+}
 
-  // Windy radar layer centered on the resolved location.
-  document.getElementById('weatherscanFrame').src = buildRadarUrl(lat, lon);
-  document.querySelector('#weatherscanContent h2').textContent = 'Weather Radar';
+async function showWeatherRadar() {
+  const t = await resolveRadarTarget();
+  // Windy radar layer centered on the selected location.
+  document.getElementById('weatherscanFrame').src = buildRadarUrl(t.lat, t.lon, t.zoom);
+  document.querySelector('#weatherscanContent h2').textContent =
+    t.label ? `Weather Radar — ${t.label}` : 'Weather Radar';
   showPanel('weatherscanPanel');
 }
 
@@ -1281,6 +1305,13 @@ function buildEventWatch(item) {
 }
 
 function renderTicker(items) {
+  // The WX page has no sports events: its ticker runs the weather cycle
+  // (which already includes World) instead. Checked first so neither a
+  // schedule refresh nor the World tab can overwrite it.
+  if (window.MNV_PAGE === 'wx') {
+    if (!wxCycleActive) startWeatherCycle();
+    return;
+  }
   // While the World weather view owns the ticker, don't let a schedule
   // load/refresh overwrite it with sports events.
   if (isWorldWeatherActive) { renderWorldWeatherInTicker(); return; }
@@ -1451,7 +1482,8 @@ document.getElementById('refreshAll').addEventListener('click', () => {
 })();
 
 // "Refresh Current Section" — re-fetch the active news category in place.
-document.getElementById('refreshRss').addEventListener('click', async () => {
+// (Absent on pages without a news panel, e.g. /wx — hence the ?.)
+document.getElementById('refreshRss')?.addEventListener('click', async () => {
   const btn = document.getElementById('refreshRss');
   btn.classList.add('refreshing');
   btn.disabled = true;
@@ -1574,6 +1606,10 @@ function autoScrollStep(ts) {
 
 function setAutoScroll(enabled) {
   const btn = document.getElementById('autoScrollToggle');
+  // Pages without a news panel (e.g. /wx) have no news auto-scroll. Bail
+  // out without touching the saved preference, which is shared across
+  // pages via localStorage and would otherwise flip the main page's setting.
+  if (!btn) return;
   const statusSpan = btn.querySelector('.scroll-status');
   if (enabled) {
     if (!autoScrollRafId) {
@@ -1600,7 +1636,7 @@ function setAutoScroll(enabled) {
   }
 }
 
-document.getElementById('autoScrollToggle').addEventListener('click', () => {
+document.getElementById('autoScrollToggle')?.addEventListener('click', () => {
   setAutoScroll(!autoScrollRafId);
 });
 
@@ -2675,7 +2711,14 @@ document.getElementById('weatherAutoScrollToggle').addEventListener('click', () 
   // Respect an explicit user toggle if one was saved; otherwise default on.
   const savedWeatherSwap = localStorage.getItem('mnv-weather-swapped');
   isWeatherSwapped = (savedWeatherSwap === null) ? true : (savedWeatherSwap === '1');
-  if (isWeatherSwapped) {
+  if (window.MNV_PAGE === 'wx') {
+    // The WX page has no events, so its weather panel always shows the
+    // forecast (never swapped). The ticker runs the weather cycle via the
+    // renderTicker() guard. The saved preference is left untouched — it
+    // belongs to the main page.
+    isWeatherSwapped = false;
+    if (!wxCycleActive) startWeatherCycle();
+  } else if (isWeatherSwapped) {
     await applyWeatherSwap();
   }
 

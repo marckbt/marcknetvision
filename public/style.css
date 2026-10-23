@@ -722,7 +722,10 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
    The BizNews page also sets .weather-swapped (to pin markets in the
    middle column) but drives its ticker with the CSS marquee, so it is
    excluded here — otherwise its market ticker would sit still. */
-body.weather-swapped:not(.biznews-page) .ticker-track {
+body.weather-swapped:not(.biznews-page) .ticker-track,
+/* The WX page always runs the weather cycle in its ticker (without
+   weather-swap), so it needs the same marquee suppression. */
+body.wx-page .ticker-track {
   animation: none;
 }
 
@@ -2524,3 +2527,70 @@ button.biznews-back-link {
   font-size: 13px;
   line-height: 1;
 }
+
+/* ===== WX PAGE (/wx) ===== */
+/* Middle column is reserved and intentionally blank for now. */
+.wx-reserved {
+  flex-shrink: 0;
+}
+/* Live-feed cards: the Weather Cams card is a placeholder until a source
+   is chosen — visibly inactive and not clickable. */
+.wx-feed-card { cursor: pointer; }
+.wx-feed-disabled {
+  cursor: default;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.wx-welcome-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 14px;
+}
+
+/* WX live feeds: just the video, filling the main panel edge to edge.
+   #mainContent is position:relative, so inset:0 covers the whole panel. */
+#wxStreamPanel.active {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  background: #000;
+  z-index: 5;
+}
+.wx-stream-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;   /* scale to the panel without cropping the picture */
+  background: #000;
+}
+.wx-stream-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e1;
+  font-size: 15px;
+  pointer-events: none;
+}
+.wx-stream-status[hidden] { display: none; }
+.wx-stream-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+.wx-stream-close:hover { opacity: 1; background: rgba(0, 0, 0, 0.8); }
+/* The floating browser-location chip sits over the video's controls in the
+   bottom-right corner — hide it while a feed is playing. */
+body.wx-streaming .main-panel-location { display: none; }

@@ -67,7 +67,16 @@
       "Bash(cd \"/Users/benmarck/Library/Mobile Documents/com~apple~CloudDocs/Documents/ThumbDrive-MasterSync/Personal-Projects/BenDailySummary/Web\"; echo \"=== server log: feed failures + stale drops ===\"; grep -iE \"failed to fetch|dropped .* stale\" /tmp/mnv_biz2.log | head -20)",
       "Bash(pkill -f \"node stocks-scraper.js\")",
       "Bash(pkill -f \"node server.js\")",
-      "Bash(node -e 'try{const d=require\\(\"./public/data/stocks.json\"\\);console.log\\(\"  keys:\",Object.keys\\(d\\).join\\(\", \"\\)\\);[\"indexes\",\"commodities\",\"stocks\",\"etfs\",\"sectors\"].forEach\\(k=>console.log\\(\"   \",k+\":\",\\(d[k]||[]\\).length\\)\\);}catch\\(e\\){console.log\\(\"  missing:\",e.message\\)}')"
+      "Bash(node -e 'try{const d=require\\(\"./public/data/stocks.json\"\\);console.log\\(\"  keys:\",Object.keys\\(d\\).join\\(\", \"\\)\\);[\"indexes\",\"commodities\",\"stocks\",\"etfs\",\"sectors\"].forEach\\(k=>console.log\\(\"   \",k+\":\",\\(d[k]||[]\\).length\\)\\);}catch\\(e\\){console.log\\(\"  missing:\",e.message\\)}')",
+      "Bash(awk 'NR>=2269 && NR<=2420' public/app.js)",
+      "Bash(cp public/index.html public/wx.html)",
+      "Bash(wc -l)",
+      "Bash(SCR=/private/tmp/claude-501/-Users-benmarck-Library-Mobile-Documents-com-apple-CloudDocs-Documents-ThumbDrive-MasterSync-Personal-Projects-BenDailySummary-Web/8c868b9a-e243-438b-b1da-8fa6581fd7c4/scratchpad/wx-columns.html node -e ' *)",
+      "Bash(awk 'NR>=131 && NR<=220' public/wx.html)",
+      "Bash(grep -nE 'welcome-hero|class=\"topic-links\"|^        </div>$|id=\"newsDetailPanel\"')",
+      "Bash(node)",
+      "Bash(awk 'NR<=2186 && /^\\(async \\)?function /{f=$0; n=NR} END{}; NR==2186{print \"  \"n\": \"f}' public/app.js)",
+      "Bash(node -c public/wx.js)"
     ]
   }
 }
