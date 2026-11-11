@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User Admin — MarckNetVision</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/auth/auth.css">
+</head>
+<body class="admin-page">
+  <header class="admin-head">
+    <h1>User Admin</h1>
+    <nav class="auth-links">
+      <a href="/">Dashboard</a>
+      <a href="/change-password">Change My Password</a>
+      <button type="button" class="auth-link-btn" id="logoutBtn">Log Out</button>
+    </nav>
+  </header>
+
+  <section class="admin-section">
+    <h2>Add User</h2>
+    <form id="addForm" class="admin-add">
+      <div>
+        <label for="newEmail">Email</label>
+        <input id="newEmail" type="email" autocomplete="off" required>
+      </div>
+      <div>
+        <label for="newPassword">Temporary password</label>
+        <input id="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+      </div>
+      <label class="auth-check"><input id="newRequireChange" type="checkbox" checked> Must change at first login</label>
+      <button type="submit">Add User</button>
+    </form>
+    <p class="auth-error" id="addError" role="alert" hidden></p>
+  </section>
+
+  <section class="admin-section">
+    <h2>Users</h2>
+    <p class="auth-error" id="listError" role="alert" hidden></p>
+    <div class="admin-table-wrap">
+      <table>
+        <thead>
+          <tr><th>Email</th><th>Status</th><th>Last login</th><th>Sessions</th><th>Created</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="userRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog id="passwordDialog">
+    <form id="passwordForm">
+      <h2>Change Password</h2>
+      <p class="auth-sub" id="passwordFor"></p>
+      <label for="resetPassword">New password</label>
+      <input id="resetPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+      <label class="auth-check"><input id="resetRequireChange" type="checkbox" checked> Must change at next login</label>
+      <p class="auth-sub">This logs the user out everywhere.</p>
+      <p class="auth-error" id="passwordError" role="alert" hidden></p>
+      <div class="admin-dialog-actions">
+        <button type="button" class="auth-secondary" id="passwordCancel">Cancel</button>
+        <button type="submit">Save Password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/auth/common.js"></script>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

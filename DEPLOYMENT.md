@@ -198,6 +198,41 @@ Certbot will automatically configure Nginx for HTTPS and set up auto-renewal.
 
 ---
 
+## Logins and Users
+
+Every page and API route requires a login. Users and sessions are stored in
+`MNV_DATA_DIR` (`users.json`, `sessions.json`), never in git. Passwords are
+hashed with scrypt.
+
+| Setup | `MNV_DATA_DIR` |
+|---|---|
+| Docker | `/var/lib/marcknetvision`, in the `marcknetvision-data` volume |
+| RHEL install | `/var/lib/marcknetvision` |
+| Other | Set it in the service file; defaults to `~/.marcknetvision` |
+
+**Back this directory up.** It is the only copy of your users.
+
+**First start.** An empty data directory gets the built-in admin,
+`admin@marcknet.net`, from `ADMIN_INITIAL_PASSWORD` if set, otherwise from the
+gitignored `config/admin-seed.json` (`node scripts/auth-tool.js seed`). With
+neither, the app runs but nobody can log in. The admin must choose a new
+password at first login, then manages users at `/admin`.
+
+**HTTPS.** Run production behind HTTPS. Over plain HTTP, passwords and session
+cookies can be read on the network, and the login page warns about it.
+
+**Sessions** end after `SESSION_IDLE_HOURS` (default 24) with no activity. An
+open dashboard tab counts as activity, so it stays logged in.
+
+**Locked out?**
+
+```bash
+node scripts/auth-tool.js reset admin@marcknet.net
+sudo systemctl restart marcknetvision
+```
+
+---
+
 ## Step 10: Set Up a Cron Job for Data Refresh
 
 The weather and schedule data should be refreshed periodically. Create a cron job:

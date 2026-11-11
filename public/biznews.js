@@ -4,8 +4,10 @@
  * and the weather ticker). On this page:
  *   • middle column  → market groups: US indices, global indices,
  *                      commodities, major US stocks, ETFs
- *   • main panel     → CNBC live TV (autoplays on load), a sector heat map,
- *                      or a selected symbol's historical chart
+ *   • main panel     → live business TV (Bloomberg or Fox Business, played
+ *                      by the shared live-stream.js like /wx's weather
+ *                      feeds; Bloomberg starts on load), or a selected
+ *                      symbol's historical chart
  *
  * Market data comes from /api/stocks (Yahoo Finance, cached server-side) and
  * /api/stock-history/:symbol for the charts.
@@ -17,14 +19,50 @@
   let view = 'live';                 // main panel: 'live' | 'history'
   let marketsView = 'list';          // markets column: 'list' | 'heat'
 
-  // CNBC's own live-tv page can't be embedded (CSP allows only *.cnbc.com)
-  // and needs a TV-provider sign-in, so the server resolves CNBC's free
-  // live YouTube broadcast for us via /api/live-tv (see server.js) and we
-  // embed that. Autoplay requires mute=1, which the server includes.
-  const CNBC_SITE = 'https://www.cnbc.com/live-tv/';
-  let liveTv = null;   // { channel, videoId, embedUrl, watchUrl, isFallback }
-
   const $ = (id) => document.getElementById(id);
+
+  // ----- Live business TV (main panel) -----
+  // As on /wx: while a feed plays nothing else takes over the main panel;
+  // closing it or popping it out (live-stream.js) frees the panel, which
+  // then shows the chart picked meanwhile, if any.
+  const STREAM_PANEL = window.mnvLiveStream.PANEL;
+  const DEFAULT_FEED = 'bloomberg';
+  let lastFeed = DEFAULT_FEED;
+  let allowLeaveStream = false;
+  const streaming = () => document.body.classList.contains('wx-streaming');
+
+  const baseShowPanel = window.showPanel;
+  window.showPanel = function (panelId) {
+    if (panelId !== STREAM_PANEL && streaming() && !allowLeaveStream) return;
+    allowLeaveStream = false;
+    return baseShowPanel.apply(this, arguments);
+  };
+  function leaveStreamTo(panelId) {
+    allowLeaveStream = true;
+    window.showPanel(panelId);
+  }
+  const panelAfterStream = () => (historySymbol ? 'marketPanel' : 'welcomeScreen');
+
+  window.wxCloseStream = () => leaveStreamTo(panelAfterStream());   // stops playback
+  window.mnvLiveStream.onPoppedOut = () => leaveStreamTo(panelAfterStream());
+  window.mnvLiveStream.onPoppedBack = () => window.showPanel(STREAM_PANEL);
+
+  // Remember the feed last chosen, for the chart header's "Live TV" button.
+  const baseShowStream = window.wxShowStream;
+  window.wxShowStream = function (key, opts) {
+    if (!(opts && opts.reconnect)) { lastFeed = key; view = 'live'; }
+    return baseShowStream.call(this, key, opts);
+  };
+  window.bizShowLive = () => window.wxShowStream(lastFeed);
+
+  // A chart was asked for while a feed holds the panel: point at Pop out.
+  function nudgePopOut() {
+    const b = document.querySelector('#wxStreamPanel .wx-stream-popout');
+    if (!b) return;
+    b.classList.remove('wx-stream-popout--nudge');
+    void b.offsetWidth;   // restart the animation
+    b.classList.add('wx-stream-popout--nudge');
+  }
   const esc = (s) => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
   const fmtNum = (n) => (n == null ? '--' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const arrow = (dir) => dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–';
@@ -191,72 +229,10 @@
       <div class="market-panel-head">
         <h2>${esc(title)}</h2>
         <div class="market-panel-actions">
-          <button class="market-view-btn${view === 'live' ? ' active' : ''}" onclick="showCNBCLive()">&#9654; CNBC Live</button>
+          <button class="market-view-btn" onclick="bizShowLive()" title="Watch live business TV">&#9654; Live TV</button>
           ${rangeBtns}
         </div>
       </div>`;
-  }
-
-  // ----- CNBC live TV: chromeless popup window -----
-  // CNBC can't be embedded in-page (its CSP blocks framing and the channel
-  // needs a TV-provider sign-in), so we open it in a chromeless popup sized
-  // to the main content area — the same pattern the dashboard already uses
-  // for ESPN / YouTube TV. Returns the window handle, or null if the
-  // browser's popup blocker stopped it (which happens when we try on page
-  // load rather than from a click).
-  function openCNBCPopup(url) {
-    const target = url || CNBC_SITE;
-    const main = document.getElementById('mainContent');
-    const rect = main ? main.getBoundingClientRect() : { left: 0, top: 0, width: 1200, height: 800 };
-    const ticker = document.getElementById('tickerBar');
-    const tickerH = ticker ? ticker.getBoundingClientRect().height : 0;
-    const left = Math.round(window.screenX + rect.left);
-    const top = Math.round(window.screenY + rect.top + (window.outerHeight - window.innerHeight));
-    const width = Math.round(rect.width);
-    const height = Math.round(rect.height - tickerH);
-    try {
-      return window.open(
-        target,
-        'cnbcLive',
-        `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes`
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // Main-panel card for the live-TV view: shows whether the popup opened and
-  // gives one-click ways to (re)open it — needed because a popup attempted on
-  // page load is usually blocked until the user clicks.
-  function renderLiveCard(state) {
-    view = 'live';
-    historySymbol = null;
-    const el = $('marketPanelContent');
-    if (!el) return;
-    if (typeof showPanel === 'function') showPanel('marketPanel');
-    renderMarkets($('weatherScrollArea'));
-
-    const blocked = state === 'blocked';
-    const note = blocked
-      ? 'Your browser blocked the pop-up window. Click below to open CNBC Live.'
-      : 'CNBC Live is playing in its own window. Use the buttons below to re-open it.';
-    const ytBtn = liveTv && liveTv.youtubeUrl
-      ? `<button class="biznews-back-link" onclick="bizOpenCNBCYouTube()">Open CNBC live on YouTube &rarr;</button>`
-      : '';
-    el.innerHTML = panelHeader('CNBC Live') +
-      `<p class="market-subtitle">${esc(note)}</p>
-       <div class="market-video-offline">
-         <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" style="width:150px;height:32px;">
-           <rect x="0" y="0" width="120" height="28" rx="4" fill="#005594"/>
-           <text x="60" y="20" text-anchor="middle" font-family="'Arial','Helvetica',sans-serif" font-size="16" font-weight="900" fill="#fff" letter-spacing="2">CNBC</text>
-         </svg>
-         <p>CNBC blocks in-page embedding, so it opens in its own window sized to this panel.</p>
-         <div class="market-video-actions">
-           <button class="biznews-back-link" onclick="showCNBCLive()">${blocked ? 'Open CNBC Live' : 'Re-open CNBC Live'} &rarr;</button>
-           ${ytBtn}
-         </div>
-         <p style="font-size:11px;color:var(--text-muted);">CNBC.com's live channel may ask for a TV-provider sign-in; the YouTube stream is free.</p>
-       </div>`;
   }
 
   // (The sector heat map now lives in the Markets column — see
@@ -289,7 +265,9 @@
     renderMarkets($('weatherScrollArea')); // refresh active highlight
     const el = $('marketPanelContent');
     if (!el) return;
-    if (typeof showPanel === 'function') showPanel('marketPanel');
+    // A playing feed keeps the panel; the chart is ready behind it.
+    if (streaming()) nudgePopOut();
+    else showPanel('marketPanel');
     el.innerHTML = panelHeader(title) +
       (meta ? `<p class="market-subtitle">${fmtNum(meta.price)} <span class="${meta.direction}">${arrow(meta.direction)} ${meta.change > 0 ? '+' : ''}${fmtNum(meta.change)} (${meta.changePercent > 0 ? '+' : ''}${meta.changePercent}%)</span></p>` : '') +
       '<div class="market-chart-wrap"><canvas id="histChart"></canvas></div>' +
@@ -338,17 +316,6 @@
     marketsView = marketsView === 'heat' ? 'list' : 'heat';
     renderMarkets($('weatherScrollArea'));
   };
-  // Called from the Live Video card and the "CNBC Live" header button. This
-  // runs from a real click, so the popup is not blocked.
-  window.showCNBCLive = () => {
-    const w = openCNBCPopup(CNBC_SITE);
-    renderLiveCard(w ? 'opened' : 'blocked');
-    if (w) { try { w.focus(); } catch (_) {} }
-  };
-  window.bizOpenCNBCYouTube = () => {
-    const w = openCNBCPopup((liveTv && liveTv.youtubeUrl) || CNBC_SITE);
-    if (w) { try { w.focus(); } catch (_) {} }
-  };
 
   // ----- Init -----
   function relabelSidebar() {
@@ -367,22 +334,9 @@
 
     renderTickerQuotes();                   // ticker loading state
 
-    // Open CNBC Live in its own window on page load. Browsers block
-    // window.open() without a user gesture, so if it's blocked the live
-    // card offers a one-click "Open CNBC Live" button.
-    const popup = openCNBCPopup(CNBC_SITE);
-    renderLiveCard(popup ? 'opened' : 'blocked');
-
-    // Resolve CNBC's free YouTube live stream so the card can offer it as a
-    // no-sign-in alternative (CNBC.com's channel may want a TV provider).
-    fetch('/api/live-tv')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (!d) return;
-        liveTv = d;
-        if (view === 'live') renderLiveCard(popup ? 'opened' : 'blocked');
-      })
-      .catch(() => {});
+    // Live business TV in the main panel from the start (muted, so the
+    // browser allows it to autoplay; the video controls unmute).
+    window.wxShowStream(DEFAULT_FEED);
 
     loadStocks();
     setInterval(loadStocks, 5 * 60 * 1000);

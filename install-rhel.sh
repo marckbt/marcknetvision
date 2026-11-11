@@ -237,6 +237,10 @@ as_app_user "cd '$APP_DIR' && npm install --omit=dev || npm install"
 log "Creating data directory and generating initial data..."
 as_app_user "mkdir -p '$APP_DIR/public/data'"
 
+# Users and sessions: outside the git checkout, so the nightly pull can't
+# touch them. Back this directory up.
+install -d -o "$APP_USER" -g "$APP_USER" -m 700 "/var/lib/${APP_NAME}"
+
 # Generate weather and schedule data (non-fatal if they fail — cron will retry)
 as_app_user "cd '$APP_DIR' && node -e \"require('./weather-scraper').refreshWeather().then(()=>console.log('Weather ok')).catch(e=>{console.error(e.message);process.exit(0)})\"" \
   || warn "Initial weather fetch failed (continuing)"
@@ -263,6 +267,10 @@ Restart=on-failure
 RestartSec=10
 Environment=PORT=${APP_PORT}
 Environment=NODE_ENV=production
+Environment=MNV_DATA_DIR=/var/lib/${APP_NAME}
+# First start only: set the built-in admin's password here, or nobody can
+# log in (config/admin-seed.json is not in git). Remove the line afterwards.
+#Environment=ADMIN_INITIAL_PASSWORD=
 
 StandardOutput=journal
 StandardError=journal

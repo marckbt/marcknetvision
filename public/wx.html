@@ -19,41 +19,34 @@
 
   <!-- Top Controls -->
   <div id="topControls">
+    <button id="menuHome" title="Go to the home page">
+      <span class="menu-icon menu-icon--home"></span> Home
+    </button>
     <button id="refreshAll" title="Refresh all feeds">
-      <span class="refresh-icon">&#8635;</span> Full Refresh
+      <span class="menu-icon menu-icon--refresh refresh-icon"></span> Full Refresh
     </button>
     <button id="fullAutoRefreshToggle" title="Toggle full auto-refresh (1 hour)">
-      Auto-Full Refresh <span class="full-auto-status">OFF</span>
+      <span class="menu-icon menu-icon--auto"></span> Auto-Full Refresh <span class="full-auto-status">OFF</span>
     </button>
     <button id="themeToggle" title="Toggle theme">
-      <span class="theme-icon">&#9790;</span> <span class="theme-label">Dark Mode</span>
+      <span class="menu-icon menu-icon--theme"></span> <span class="theme-label">Dark Mode</span>
     </button>
   </div>
 
   <div id="dashboard">
-    <!-- LEFT COLUMN: Weather. On the WX page the weather panel moves into the
-         slot the news panel occupies on the main page; there are no news or
-         sports-event feeds on this page. -->
+    <!-- LEFT COLUMN: Locations with current conditions (temperature, wind,
+         dew point, condition icon, precipitation chance, alert indicator).
+         Built by wx.js; selecting one drives the forecast and maps. Live
+         Video sits below. -->
     <aside id="weatherSidebar" class="sidebar sidebar-split">
       <div class="sidebar-top">
         <div class="sidebar-header">
           <div class="sidebar-header-row">
-            <h3 id="weatherSidebarTitle"><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> WEATHER</h3>
-            <div class="sidebar-header-actions">
-              <button id="weatherAutoScrollToggle" class="sidebar-auto-scroll-btn" title="Auto-scroll the weather panel and cycle locations">
-                Auto-Scroll <span class="scroll-status">OFF</span>
-              </button>
-            </div>
-          </div>
-          <div class="category-tabs" id="weatherLocationTabs">
-            <button class="tab-btn active" data-location="chantilly">Chantilly, VA</button>
-            <button class="tab-btn" data-location="cincinnati">Cincinnati, OH</button>
-            <button class="tab-btn" data-location="browserLocation">Browser Location</button>
-            <button class="tab-btn" data-location="world">World</button>
+            <h3><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 18s-5.5-5.6-5.5-9.5a5.5 5.5 0 0 1 11 0C15.5 12.4 10 18 10 18z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="10" cy="8.5" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg> LOCATIONS</h3>
           </div>
         </div>
-        <div class="sidebar-scroll" id="weatherScrollArea">
-          <div class="loading-spinner" id="weatherLoading">Loading weather...</div>
+        <div class="sidebar-scroll" id="wxLocationList">
+          <div class="loading-spinner">Loading locations...</div>
         </div>
       </div>
       <div class="sidebar-bottom">
@@ -79,13 +72,6 @@
             </div>
           </div>
           <div class="live-video-row" style="margin-top:6px;">
-            <div class="pivotal-card live-video-half wx-feed-card" onclick="wxShowStream('skyWeather')" title="Watch Sky Weather in the main panel">
-              <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="twc-logo">
-                <rect x="0" y="0" width="120" height="28" rx="4" fill="#1e88e5"/>
-                <text x="60" y="18.5" text-anchor="middle" font-family="'Arial','Helvetica',sans-serif" font-size="11" font-weight="700" fill="#fff" letter-spacing="0.5">SKY WEATHER</text>
-              </svg>
-              <div class="wx-desc" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">Live weather TV</div>
-            </div>
             <!-- Weather Cams: source TBD — shown disabled until a feed is chosen. -->
             <div class="pivotal-card live-video-half wx-feed-card wx-feed-disabled" title="Weather cams — coming soon" aria-disabled="true">
               <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="twc-logo">
@@ -109,8 +95,33 @@
       <div class="sidebar-resize-handle" data-sidebar="weatherSidebar"></div>
     </aside>
 
-    <!-- MIDDLE COLUMN: reserved — intentionally blank for now. -->
-    <aside id="wxReservedSidebar" class="sidebar wx-reserved" aria-label="Reserved"></aside>
+    <!-- MIDDLE COLUMN: 7-day forecast for the selected location. The shared
+         app.js renders the forecast into #weatherScrollArea. -->
+    <aside id="wxForecastSidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-header-row">
+          <h3 id="weatherSidebarTitle"><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8" y1="2" x2="8" y2="0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="8" x2="0.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="14" y1="8" x2="15.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="3.8" y1="3.8" x2="2.7" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="12.2" x2="13.3" y2="13.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="12.2" y1="3.8" x2="13.3" y2="2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12 14c0-2 1.5-3.5 3.5-3.5S19 12 19 14c0 1.5-1.2 2.5-2.5 2.5h-5c-1.5 0-2.5-1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg> <span id="wxMiddleTitle">7-DAY FORECAST</span></h3>
+          <div class="sidebar-header-actions">
+            <button id="weatherAutoScrollToggle" class="sidebar-auto-scroll-btn" title="Auto-scroll the forecast and cycle locations">
+              Auto-Scroll <span class="scroll-status">OFF</span>
+            </button>
+          </div>
+        </div>
+        <div class="wx-forecast-location" id="wxForecastLocation"></div>
+        <!-- Selection is made from the Locations list on the left. These tabs
+             stay (hidden) because the shared app.js selection logic, forecast
+             rendering and auto-scroll all run off them. -->
+        <div class="category-tabs" id="weatherLocationTabs">
+          <!-- One tab per entry in config/locations.json is added here by app.js. -->
+          <button class="tab-btn" data-location="browserLocation">Browser Location</button>
+          <button class="tab-btn" data-location="world">World</button>
+          <button class="tab-btn" data-location="alerts">Breaking Alerts</button>
+        </div>
+      </div>
+      <div class="sidebar-scroll" id="weatherScrollArea">
+        <div class="loading-spinner" id="weatherLoading">Loading weather...</div>
+      </div>
+    </aside>
 
     <!-- MAIN CONTENT AREA -->
     <main id="mainContent">
@@ -128,7 +139,65 @@
         </div>
       </div>
       <div class="main-content-inner">
-        <div id="welcomeScreen" class="content-panel active">
+        <!-- Default main-panel view: radar and a weather map for the selected
+             location (managed by wx.js). -->
+        <div id="wxMapsPanel" class="content-panel active wx-maps-panel">
+          <div class="wx-maps-head">
+            <h2 id="wxMapsTitle">Radar &amp; Maps</h2>
+            <a href="/" class="wx-maps-home" title="Back to the main page">&larr; Main</a>
+          </div>
+          <div class="wx-maps-grid">
+            <div class="wx-map-card">
+              <div class="wx-map-label">Radar</div>
+              <iframe id="wxRadarFrame" src="about:blank" title="Weather radar" allowfullscreen></iframe>
+            </div>
+            <div class="wx-map-card">
+              <div class="wx-map-label">
+                <span>Map</span>
+                <div class="windy-toggle-group" id="wxMapOverlays">
+                  <button class="windy-toggle-btn active" data-overlay="satellite">Satellite</button>
+                  <button class="windy-toggle-btn" data-overlay="wind">Wind</button>
+                  <button class="windy-toggle-btn" data-overlay="temp">Temperature</button>
+                  <button class="windy-toggle-btn" data-overlay="rain">Rain</button>
+                  <button class="windy-toggle-btn" data-overlay="cape">CAPE</button>
+                </div>
+              </div>
+              <iframe id="wxMapFrame" src="about:blank" title="Weather map" allowfullscreen></iframe>
+            </div>
+          </div>
+        </div>
+
+        <!-- World location: interactive map of today's high and conditions for
+             each world city (managed by wx.js). -->
+        <div id="wxWorldPanel" class="content-panel wx-world-panel">
+          <div class="wx-maps-head">
+            <h2 id="wxWorldTitle">World Weather &mdash; Today's Highs</h2>
+            <div class="wx-world-mode" id="wxWorldMode" role="group" aria-label="World map view">
+              <button type="button" data-mode="today" title="Today's high and forecast conditions">Today's forecast</button>
+              <button type="button" data-mode="now" title="Current temperature and conditions">Current</button>
+            </div>
+            <span class="wx-world-count" id="wxWorldCount"></span>
+            <button type="button" class="wx-alerts-btn" id="wxWorldHeatToggle" aria-pressed="true" title="Show or hide the temperature colour layer">Temperature layer</button>
+            <button type="button" class="wx-alerts-btn" id="wxWorldNightToggle" aria-pressed="true" title="Show or hide the day/night shading">Day/night</button>
+            <a href="/" class="wx-maps-home" title="Back to the main page">&larr; Main</a>
+          </div>
+          <div class="wx-world-map" id="wxWorldMap"></div>
+          <div class="wx-world-legend" id="wxWorldLegend" aria-label="Temperature scale"></div>
+        </div>
+
+        <!-- Breaking Alert System: active NWS warnings and watches on a map
+             of the US (alert-map.js, managed by wx.js). -->
+        <div id="wxAlertsPanel" class="content-panel wx-alerts-panel">
+          <div class="wx-maps-head">
+            <h2>Breaking Alert System</h2>
+            <span class="wx-world-count" id="wxAlertsMeta"></span>
+            <button type="button" class="wx-alerts-btn" id="wxAlertsReset" title="Show the lower 48 states">Lower 48</button>
+            <button type="button" class="wx-alerts-btn" id="wxAlertsPopout" title="Open the alert map in a new window">New window &#8599;</button>
+          </div>
+          <div class="wx-world-map mnv-alert-map" id="wxAlertsMap"></div>
+        </div>
+
+        <div id="welcomeScreen" class="content-panel">
           <div class="welcome-hero">
             <svg class="welcome-logo" viewBox="0 0 220 60" xmlns="http://www.w3.org/2000/svg">
               <defs>
@@ -162,8 +231,17 @@
           <video id="wxStreamVideo" class="wx-stream-video"
                  autoplay muted playsinline controls></video>
           <div id="wxStreamStatus" class="wx-stream-status" hidden></div>
-          <button class="wx-stream-close" onclick="wxCloseStream()"
-                  title="Close video" aria-label="Close video">&times;</button>
+          <!-- Top right of the video, left of the page's menu button. -->
+          <div class="wx-stream-controls">
+            <button class="wx-stream-close" onclick="wxCloseStream()"
+                    title="Close video" aria-label="Close video">&times;</button>
+            <button class="wx-stream-popout" onclick="wxPopOutStream()"
+                    title="Pop out the video and keep using the main panel"
+                    aria-label="Pop out video">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="1.5"/><rect x="10" y="10" width="6" height="4.5" rx="0.8" class="fill"/></svg>
+              Pop out
+            </button>
+          </div>
         </div>
 
         <div id="newsDetailPanel" class="content-panel">
@@ -189,7 +267,7 @@
         <div id="weatherscanPanel" class="content-panel">
           <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
           <div id="weatherscanContent">
-            <h2>Weatherscan Live</h2>
+            <h2>Weather Radar</h2>
             <iframe id="weatherscanFrame" src="" style="width:100%;height:calc(100vh - 160px);border:none;border-radius:8px;" allowfullscreen></iframe>
           </div>
         </div>
@@ -291,6 +369,8 @@
        runs the weather cycle in the ticker; wx.js adds the live feeds and radar. -->
   <script>window.MNV_PAGE = 'wx';</script>
   <script src="app.js"></script>
+  <script src="live-stream.js"></script>
+  <script src="alert-map.js"></script>
   <script src="wx.js"></script>
 </body>
 </html>

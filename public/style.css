@@ -89,12 +89,48 @@ html, body {
   display: none; /* revealed by body.menu-open */
 }
 body.menu-open #topControls { display: flex; }
+/* Every menu item looks the same: icon, then label, left-aligned. */
 #topControls button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
   width: 100%;
-  justify-content: center;
+  padding: 8px 14px;
   font-size: 12px;
-  padding: 8px 10px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  transition: all var(--transition-speed);
 }
+#topControls button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+#topControls .full-auto-status { margin-left: auto; }
+/* Icons are masks, so each one takes its button's text colour. */
+.menu-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+.menu-icon--home { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M3%209.5l7-6%207%206M5%208v8.5h10V8M8.5%2016.5V12h3v4.5'%2F%3E%3C%2Fsvg%3E"); }
+.menu-icon--refresh { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M16.5%2010a6.5%206.5%200%201%201-2-4.7M14.5%202.3v3h-3'%2F%3E%3C%2Fsvg%3E"); }
+.menu-icon--auto { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Ccircle%20cx%3D'10'%20cy%3D'10'%20r%3D'7'%2F%3E%3Cpath%20d%3D'M10%206v4l2.5%202'%2F%3E%3C%2Fsvg%3E"); }
+.menu-icon--admin { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Ccircle%20cx%3D'7.5'%20cy%3D'7'%20r%3D'2.8'%2F%3E%3Cpath%20d%3D'M2.5%2016c0-2.8%202.2-4.5%205-4.5s5%201.7%205%204.5M13%204.4a2.8%202.8%200%200%201%200%205.2M14.6%2011.8c1.8.6%202.9%202.1%202.9%204.2'%2F%3E%3C%2Fsvg%3E"); }
+.menu-icon--key { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Ccircle%20cx%3D'6.5'%20cy%3D'13.5'%20r%3D'3.5'%2F%3E%3Cpath%20d%3D'M9%2011l7.5-7.5M13.5%206.5L16%209'%2F%3E%3C%2Fsvg%3E"); }
+.menu-icon--logout { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M8%203.5H4.5v13H8M12.5%206.5L16%2010l-3.5%203.5M16%2010H8'%2F%3E%3C%2Fsvg%3E"); }
+.menu-icon--theme { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Cpath%20d%3D'M16%2012.2A6.5%206.5%200%201%201%207.8%204%205.2%205.2%200%200%200%2016%2012.2z'%2F%3E%3C%2Fsvg%3E"); }
+[data-theme="light"] .menu-icon--theme { --icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2020%2020'%20fill%3D'none'%20stroke%3D'black'%20stroke-width%3D'1.6'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Ccircle%20cx%3D'10'%20cy%3D'10'%20r%3D'3.2'%2F%3E%3Cpath%20d%3D'M10%202.5v1.8M10%2015.7v1.8M2.5%2010h1.8M15.7%2010h1.8M4.7%204.7l1.3%201.3M14%2014l1.3%201.3M4.7%2015.3L6%2014M14%206l1.3-1.3'%2F%3E%3C%2Fsvg%3E"); }
 
 /* Hamburger toggle — always visible, fixed at the top-right corner. */
 #mobileMenuToggle {
@@ -252,26 +288,6 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
   font-size: 11px;
 }
 
-#refreshAll {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  padding: 6px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all var(--transition-speed);
-  box-shadow: var(--card-shadow);
-}
-#refreshAll:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
-}
 #refreshAll.refreshing .refresh-icon,
 #refreshRss.refreshing .refresh-icon {
   animation: spin 0.8s linear infinite;
@@ -333,50 +349,6 @@ body.menu-open #mobileMenuToggle .hamburger-bars span:nth-child(3) {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-/* Theme toggle now lives inside the hamburger drawer as a normal pill
-   row alongside the refresh buttons. */
-#themeToggle {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  padding: 6px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all var(--transition-speed);
-  box-shadow: var(--card-shadow);
-}
-#themeToggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
-}
-.theme-icon { font-size: 16px; color: var(--accent); }
-
-#fullAutoRefreshToggle {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  padding: 6px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all var(--transition-speed);
-  box-shadow: var(--card-shadow);
-}
-#fullAutoRefreshToggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 #fullAutoRefreshToggle.auto-on {
   border-color: #10b981;
@@ -2265,7 +2237,7 @@ body.wx-page .ticker-track {
     right: 8px;
     max-width: calc(100vw - 16px);
   }
-  #topControls button { font-size: 11px; padding: 7px 9px; }
+  #topControls button { font-size: 11px; padding: 7px 12px; }
 
   .content-panel { padding: 16px 14px; }
 
@@ -2385,6 +2357,7 @@ body.ticker-relocated #tickerBar .ticker-conditions {
 .market-panel-head {
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 10px; margin-bottom: 4px;
+  padding-right: 44px;   /* clear the menu button */
 }
 .market-panel-head h2 { font-size: 20px; }
 .market-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -2529,9 +2502,555 @@ button.biznews-back-link {
 }
 
 /* ===== WX PAGE (/wx) ===== */
-/* Middle column is reserved and intentionally blank for now. */
-.wx-reserved {
+/* Locations are picked from the left column; the shared location tabs stay
+   in the DOM (app.js selection runs off them) but are not shown. */
+body.wx-page #weatherLocationTabs { display: none !important; }
+.wx-forecast-location {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Locations list (left column) */
+.wx-loc-card {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.wx-loc-card:hover { background: var(--bg-card-hover); }
+.wx-loc-card.active {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accent-glow);
+}
+/* Globe on the World location. No pointer events on the tab version: the
+   tab click handler checks that the click landed on the button itself. */
+.globe-icon {
+  width: 1.2em;
+  height: 1.2em;
   flex-shrink: 0;
+  vertical-align: -0.25em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  pointer-events: none;
+}
+.wx-loc-name--icon { display: flex; align-items: center; gap: 6px; }
+.wx-loc-name--icon .globe-icon { width: 20px; height: 20px; color: var(--accent); }
+.wx-loc-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.wx-loc-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wx-loc-now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.wx-loc-icon img { width: 34px; height: 34px; display: block; }
+.wx-loc-temp {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.wx-loc-cond {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wx-loc-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+/* Alert indicator — same severity tints as the ticker-logo alert badge. */
+.wx-loc-alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.wx-loc-alert:not(.wx-loc-alert--none):hover { filter: brightness(1.15); }
+.wx-loc-alert.wx-alert--extreme,
+.wx-loc-alert.wx-alert--warning  { background: rgba(239,68,68,0.12); }
+.wx-loc-alert.wx-alert--watch    { background: rgba(245,158,11,0.12); }
+.wx-loc-alert.wx-alert--advisory { background: rgba(234,179,8,0.12); }
+.wx-loc-alert.wx-alert--statement{ background: var(--accent-glow); }
+.wx-loc-alert.wx-alert--warning,
+.wx-loc-alert.wx-alert--extreme { animation: tickerLogoAlertPulse 2s ease-in-out infinite; }
+.wx-loc-alert--none {
+  padding: 0;
+  font-weight: 400;
+  color: var(--text-muted);
+  cursor: inherit;
+}
+.wx-loc-alert-event {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wx-loc-alert-more {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.12);
+}
+
+/* World map (main panel when World is selected) */
+#wxWorldPanel.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 20px 44px;   /* bottom: clear the location chip */
+  box-sizing: border-box;
+}
+.wx-world-map {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+/* Area beyond the map's edges (when zoomed out) matches the panel. */
+.wx-world-map.leaflet-container { background: var(--bg-secondary); }
+/* OpenStreetMap tiles are light; darken them for the dark theme. */
+:root:not([data-theme="light"]) .wx-world-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
+}
+/* City markers: weather icon + high-temperature badge, name below. */
+.wx-wm-divicon { background: none; border: 0; }
+.wx-wm-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 96px;
+  cursor: pointer;
+}
+.wx-wm-badge {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 2px;
+  border-radius: 14px;
+  background: rgba(10, 14, 22, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.wx-wm-icon img { width: 26px; height: 26px; display: block; }
+.wx-wm-temp {
+  min-width: 30px;
+  padding: 2px 5px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  color: #fff;
+}
+.wx-wm-name {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 0 3px #000, 0 0 3px #000, 0 1px 2px #000;
+}
+[data-theme="light"] .wx-wm-badge { background: rgba(255, 255, 255, 0.9); }
+[data-theme="light"] .wx-wm-name { color: #111; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+/* Compact marker (would overlap a neighbour): temperature pill only;
+   hovering shows the full marker. */
+.wx-wm--compact .wx-wm-icon,
+.wx-wm--compact .wx-wm-name { display: none; }
+.wx-wm--compact .wx-wm-badge { padding: 1px; }
+.wx-wm--compact .wx-wm-temp { min-width: 0; padding: 1px 4px; font-size: 10px; }
+.wx-wm--compact:hover .wx-wm-icon,
+.wx-wm--compact:hover .wx-wm-name { display: block; }
+.wx-wm--compact:hover .wx-wm-badge { padding: 2px 4px 2px 2px; }
+.wx-wm--compact:hover .wx-wm-temp { min-width: 30px; padding: 2px 5px; font-size: 12px; }
+.wx-wm--hidden { display: none; }
+.wx-wm-popup { min-width: 170px; }
+.wx-wm-popup-time { margin: -2px 0 6px; font-size: 12px; opacity: 0.75; }
+/* World city cards (middle panel, main page): local time under the condition. */
+.world-city-time { margin-top: 1px; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.wx-wm-popup-sect + .wx-wm-popup-sect { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(0, 0, 0, 0.12); }
+.wx-wm-popup-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.6; }
+.wx-wm-popup-sect .wx-wm-popup-temps { margin-top: 0; font-size: 16px; }
+/* World map view switch: Today's forecast | Current. */
+.wx-world-mode {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.wx-world-mode button {
+  padding: 4px 10px;
+  border: 0;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wx-world-mode button + button { border-left: 1px solid var(--border-color); }
+.wx-world-mode button:hover { color: var(--accent); }
+.wx-world-mode button.active { background: var(--accent); color: #fff; }
+.wx-wm-popup-city { font-weight: 700; margin-bottom: 4px; }
+.wx-wm-popup-row { display: flex; align-items: center; gap: 6px; }
+.wx-wm-popup-row img { width: 32px; height: 32px; }
+.wx-wm-popup-temps { margin-top: 4px; font-size: 18px; font-weight: 700; }
+.wx-wm-popup-date { margin-top: 2px; font-size: 11px; opacity: 0.7; }
+/* Temperature scale under the map (°F). */
+.wx-world-legend { margin-top: 10px; padding: 0 12px 14px; }
+.wx-world-legend-bar { height: 8px; border-radius: 4px; }
+.wx-world-legend-labels { position: relative; height: 12px; margin-top: 3px; }
+.wx-world-legend-labels span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* ===== Breaking Alert System (/wx alerts location and /wx/alerts) ===== */
+#wxAlertsPanel.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 20px 44px;   /* bottom: clear the location chip */
+  box-sizing: border-box;
+}
+#wxAlertsPanel .wx-maps-head { align-items: center; }
+.wx-alerts-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wx-alerts-btn:hover { color: var(--accent); border-color: var(--accent); }
+.wx-alerts-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#wxWorldPanel .wx-maps-head { align-items: center; }
+/* World map temperature layer: a low-resolution image, smoothed when scaled. */
+.wx-heat-layer { image-rendering: auto; }
+.mnv-alert-map.leaflet-container { background: var(--bg-secondary); font: inherit; }
+:root:not([data-theme="light"]) .mnv-alert-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
+}
+.wx-ba-icon { color: #f59e0b !important; stroke-width: 1.6; }
+
+/* Event name pill, in the event's NWS map colour. */
+.mnv-alert-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-shadow: none;
+}
+.mnv-alert-new {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  animation: tickerLogoAlertPulse 2s ease-in-out infinite;
+}
+
+/* Middle panel: the alert list (scrolls continuously; wx.js). */
+.wx-ba-summary {
+  position: sticky;
+  top: -8px;               /* cover the scroll area's top padding */
+  z-index: 1;
+  margin-top: -8px;
+  padding: 16px 10px 8px;
+  background: var(--bg-sidebar, var(--bg-secondary));
+  border-bottom: 1px solid var(--border-color);
+}
+.ba-page-list .wx-ba-summary { top: 0; margin-top: 0; padding-top: 8px; }
+.wx-ba-sort {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.wx-ba-sort span { margin-right: 2px; }
+.wx-ba-sort button {
+  padding: 2px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.wx-ba-sort button:hover { color: var(--accent); border-color: var(--accent); }
+.wx-ba-sort button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Type heading when the list is sorted by type. */
+.wx-ba-group {
+  margin: 12px 6px 0;
+  padding: 2px 0 2px 8px;
+  border-left: 4px solid var(--ba-color, #f59e0b);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.wx-ba-group span {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.wx-ba-group + .wx-ba-item { margin-top: 6px; }
+.wx-ba-counts { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.wx-ba-updated { margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+.wx-ba-item {
+  margin: 8px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--ba-color, #f59e0b);
+  border-radius: 6px;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+.wx-ba-item:hover,
+.wx-ba-item:focus-visible { background: var(--bg-card-hover); outline: none; }
+.wx-ba-area {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+.wx-ba-subject {
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+.wx-ba-subject + .wx-ba-area { margin-top: 2px; color: var(--text-secondary); }
+.mnv-alert-detail-subject { margin-top: 4px; font-weight: 700; }
+.wx-ba-time { margin-top: 3px; font-size: 11px; color: var(--text-secondary); }
+.wx-ba-empty { padding: 16px 12px; font-size: 13px; color: var(--text-secondary); }
+
+/* FAA airport events: an airplane in a circle over the airport, in the
+   event's severity colour. Active events solid, planned (watch) outlined. */
+.mnv-faa-divicon { background: none; border: 0; }
+.mnv-faa-icon {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--faa-color, #FF7A00);
+  border: 2px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.mnv-faa-icon svg { width: 17px; height: 17px; fill: #111; }
+.mnv-faa-icon--watch {
+  background: rgba(10, 14, 22, 0.85);
+  border: 3px dashed var(--faa-color, #FFB300);
+}
+.mnv-faa-icon--watch svg { fill: var(--faa-color, #FFB300); }
+.mnv-faa-code {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+[data-theme="light"] .mnv-faa-code { color: #111; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+.mnv-faa-count {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+}
+.mnv-faa-selected .mnv-faa-icon { outline: 3px solid #fff; outline-offset: 2px; }
+
+/* Map legend and popups. */
+.mnv-alert-legend {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(10, 14, 22, 0.85);
+  color: #e5e7eb;
+  font-size: 11px;
+  line-height: 1.6;
+}
+[data-theme="light"] .mnv-alert-legend { background: rgba(255, 255, 255, 0.92); color: #111; }
+.mnv-alert-legend-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.mnv-alert-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.mnv-alert-legend-n { opacity: 0.7; }
+.mnv-alert-detail { font-size: 12px; line-height: 1.4; }
+.mnv-alert-detail-headline { margin-top: 6px; font-weight: 700; }
+.mnv-alert-detail-area { margin-top: 4px; }
+.mnv-alert-detail-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 6px; opacity: 0.85; }
+.mnv-alert-detail-more { margin-top: 6px; }
+.mnv-alert-detail-more summary { cursor: pointer; font-weight: 600; }
+.mnv-alert-detail-more > div { margin-top: 4px; }
+.mnv-alert-detail-inst { margin-top: 8px; }
+.mnv-alert-detail-src { margin-top: 6px; font-size: 10px; opacity: 0.6; }
+.mnv-alert-county-name { margin-bottom: 4px; font-weight: 700; }
+.mnv-alert-county-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 3px;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.mnv-alert-county-item:hover { background: rgba(0, 0, 0, 0.08); }
+
+/* Pop-out page (/wx/alerts). */
+body.mnv-alerts-page { display: flex; flex-direction: column; }
+.ba-page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+.ba-page-head h1 { margin: 0; font-size: 17px; }
+.ba-page-meta { flex: 1; font-size: 12px; color: var(--text-secondary); }
+.ba-page-body { flex: 1; min-height: 0; display: flex; }
+.ba-page-map { flex: 1; min-width: 0; }
+.ba-page-list {
+  width: 320px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-sidebar, var(--bg-secondary));
+}
+@media (max-width: 700px) {
+  .ba-page-body { flex-direction: column; }
+  .ba-page-list { width: auto; height: 40%; border-left: 0; border-top: 1px solid var(--border-color); }
+}
+
+/* Radar & Maps (default main panel) */
+#wxMapsPanel.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 20px;
+  box-sizing: border-box;
+}
+.wx-maps-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-right: 44px;   /* clear the menu button */
+}
+.wx-maps-head h2 { margin: 0; font-size: 18px; }
+.wx-world-count {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.wx-maps-home {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.wx-maps-home:hover { color: var(--accent); }
+.wx-maps-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wx-map-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.wx-map-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.wx-map-card iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
 }
 /* Live-feed cards: the Weather Cams card is a placeholder until a source
    is chosen — visibly inactive and not clickable. */
@@ -2574,10 +3093,12 @@ button.biznews-back-link {
   pointer-events: none;
 }
 .wx-stream-status[hidden] { display: none; }
+/* Video controls sit at the top right, just left of the menu button
+   (#mobileMenuToggle: fixed, 16px from the right, 40px wide). */
 .wx-stream-close {
   position: absolute;
   top: 12px;
-  right: 12px;
+  right: 64px;
   width: 34px;
   height: 34px;
   border-radius: 50%;
@@ -2591,6 +3112,45 @@ button.biznews-back-link {
   transition: opacity 0.15s, background 0.15s;
 }
 .wx-stream-close:hover { opacity: 1; background: rgba(0, 0, 0, 0.8); }
+/* /wx: close and pop-out together, pop-out rightmost. */
+.wx-stream-controls {
+  position: absolute;
+  top: 12px;
+  right: 64px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+}
+.wx-stream-controls .wx-stream-close { position: static; }
+.wx-stream-popout {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+.wx-stream-popout:hover { opacity: 1; background: rgba(0, 0, 0, 0.8); }
+/* /biznews: a chart was picked while the video holds the panel. */
+.wx-stream-popout--nudge { animation: wxPopoutNudge 0.6s ease-in-out 3; opacity: 1; }
+@keyframes wxPopoutNudge {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0, 180, 216, 0); }
+  50% { transform: scale(1.12); box-shadow: 0 0 0 6px rgba(0, 180, 216, 0.45); }
+}
+.wx-stream-popout svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.wx-stream-popout svg .fill { fill: currentColor; stroke: none; }
+/* Pop-out window (/wx/live): the video fills it. */
+body.mnv-live-page { background: #000; }
+body.mnv-live-page .wx-stream-video { width: 100vw; height: 100vh; }
 /* The floating browser-location chip sits over the video's controls in the
    bottom-right corner — hide it while a feed is playing. */
 body.wx-streaming .main-panel-location { display: none; }

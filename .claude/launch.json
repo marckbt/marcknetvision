@@ -4,7 +4,9 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "/usr/local/bin/node",
-      "runtimeArgs": ["server.js"],
+      "runtimeArgs": [
+        "server.js"
+      ],
       "autoPort": true
     }
   ]

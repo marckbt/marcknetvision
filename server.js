@@ -7,12 +7,23 @@ const fs = require('fs');
 const zlib = require('zlib');
 
 const { refreshWeather, fetchNWSAlerts } = require('./weather-scraper');
+const { loadLocations } = require('./locations-config');
 const { refreshSchedule } = require('./schedule-scraper');
 const { refreshWorldWeather } = require('./world-weather-scraper');
+const { getActiveAlerts } = require('./alerts-scraper');
+const { getFaaAlerts } = require('./faa-scraper');
 const { refreshStocks, fetchStockHistory } = require('./stocks-scraper');
+const auth = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// With TLS, nginx is the only way in: don't let port 3000 bypass it.
+const HOST = process.env.TLS_DOMAIN ? '127.0.0.1' : undefined;
+
+// Login is required for everything registered after this line.
+auth.init();
+auth.install(app);
+
 // rss-parser sees default RSS/Atom fields out of the box (enclosure,
 // itunes:image, etc.) but skips the Media RSS namespace unless asked.
 // We register media:thumbnail and media:content so feeds like The Verge,
@@ -368,6 +379,11 @@ app.get(['/', '/index.html'], servePage('index.html'));
 // Topic pages (multi-page). Each reuses the main layout with its own content.
 app.get(['/biznews', '/biznews.html'], servePage('biznews.html'));
 app.get(['/wx', '/wx.html'], servePage('wx.html'));
+// Breaking Alert System map on its own, for the /wx "new window" button.
+app.get(['/wx/alerts', '/alerts.html'], servePage('alerts.html'));
+// A live weather feed on its own, for /wx's "Pop out" where the browser
+// has no picture-in-picture.
+app.get(['/wx/live', '/live.html'], servePage('live.html'));
 
 // Version / feature probe — hit this to confirm which build is actually
 // running inside the container (bypasses all browser caching):
@@ -685,12 +701,60 @@ app.get('/api/biz-news-categories', (req, res) => {
   res.json(Object.keys(BIZ_FEED_CATEGORIES));
 });
 
+// API: Breaking Alert System — active NWS warnings and watches, US-wide,
+// plus FAA airport delays, ground stops and closures (faa-scraper.js).
+// Either source can fail without taking the other down.
+app.get('/api/alerts/us', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const [nws, faa] = await Promise.allSettled([getActiveAlerts(), getFaaAlerts()]);
+  if (nws.status === 'rejected' && faa.status === 'rejected') {
+    return res.status(502).json({ error: 'NWS and FAA alerts unavailable' });
+  }
+  const n = nws.status === 'fulfilled' ? nws.value : null;
+  const f = faa.status === 'fulfilled' ? faa.value : null;
+  const times = [n && n.fetchedAt, f && f.fetchedAt].filter(Boolean).sort();
+  res.json({
+    updated: n ? n.updated : null,
+    fetchedAt: times[times.length - 1] || new Date().toISOString(),   // newest of the two
+    stale: !!((n && n.stale) || (f && f.stale)),
+    nws: { ok: !!n, fetchedAt: n ? n.fetchedAt : null },
+    faa: { ok: !!f, fetchedAt: f ? f.fetchedAt : null },
+    alerts: [...(n ? n.alerts : []), ...(f ? f.alerts : [])],
+  });
+});
+
+// API: Weather locations from config/locations.json (main page and /wx).
+app.get('/api/locations', (req, res) => {
+  res.json(loadLocations());
+});
+
+// A location added to config/locations.json has no forecast until the
+// next weather refresh; start one in the background when that happens.
+let weatherRefreshRunning = false;
+function refreshWeatherForNewLocations(data, locations) {
+  if (weatherRefreshRunning) return;
+  if (locations.every(l => data && data[l.key])) return;
+  weatherRefreshRunning = true;
+  console.log('[Weather] New location(s) in locations.json; refreshing forecasts');
+  refreshWeather()
+    .catch(e => console.error('[Weather] refresh failed:', e.message))
+    .finally(() => { weatherRefreshRunning = false; });
+}
+
 // API: Weather data (served from static JSON generated at build time)
 app.get('/api/weather', (req, res) => {
   const weatherPath = path.join(__dirname, 'public', 'data', 'weather.json');
   if (fs.existsSync(weatherPath)) {
-    res.json(JSON.parse(fs.readFileSync(weatherPath, 'utf8')));
+    const data = JSON.parse(fs.readFileSync(weatherPath, 'utf8'));
+    const locations = loadLocations();
+    refreshWeatherForNewLocations(data, locations);
+    // Only serve locations still in the config (a removed one lingers in
+    // weather.json until the next refresh).
+    const current = {};
+    locations.forEach(l => { if (data[l.key]) current[l.key] = data[l.key]; });
+    res.json(current);
   } else {
+    refreshWeatherForNewLocations(null, loadLocations());
     res.status(404).json({ error: 'Weather data not yet generated' });
   }
 });
@@ -806,14 +870,27 @@ app.get('/api/live-tv', async (req, res) => {
 // famelack URL). It's resolved at request time (cached) because stream URLs
 // rotate — TWC's manifest path embeds a hash — and the bundled URLs below are
 // only a fallback if GitHub can't be reached.
-const FAMELACK_WEATHER_URL =
-  'https://raw.githubusercontent.com/famelack/famelack-data/main/tv/compressed/categories/weather.json';
+//
+// Channels come from famelack's category lists: weather (/wx and the main
+// page) and business (/biznews: Bloomberg, Fox Business). famelack moved
+// these from tv/compressed/categories/ to tv/categories/ in late 2026.
+const FAMELACK_CATEGORY_URL = (cat) =>
+  `https://raw.githubusercontent.com/famelack/famelack-data/main/tv/categories/${cat}.json`;
+const FAMELACK_CATEGORIES = ['weather', 'business'];
 const FAMELACK_TTL = 60 * 60 * 1000;
 let famelackCache = { time: 0, byId: null };
 
 const WX_STREAM_FALLBACK = {
   '0zAq6komI7uPHX': { name: 'The Weather Channel', sources: { streams: [
+    'https://a-cdn.klowdtv.com/live2/theweatherchannel_720p/playlist.m3u8',
     'https://twcprod-live.twc-tv.com/v1/manifest/b4d4d63a49309cc5140171fb2e92485c31be1e9e/DSP_6228e4760505741a116f1ba2_twcprod-live/6bf09ce5-366b-463c-b67e-c4b799f73c3f/4.m3u8',
+  ] } },
+  'TGIxs2mxFIlLmz': { name: 'Bloomberg TV US', sources: { streams: [
+    'https://mumbai-edge.smartplaytv.in/Bloomberg/index.m3u8',
+    'https://tvsen6.aynaott.com/bloombergtv/index.m3u8',
+  ] } },
+  'eNOYZvW4v10TNt': { name: 'Fox Business Network', sources: { streams: [
+    'https://tvsen6.aynaott.com/foxbusiness/index.m3u8',
   ] } },
   'rsgBN1CiczuZvL': { name: 'WeatherNation', sources: { streams: [
     'https://d2ferbiwcx1539.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-8zd06wicndthf-ssai-prd/WNNationalSamsung/WNNationalSamsung.m3u8',
@@ -824,32 +901,45 @@ const WX_STREAM_FALLBACK = {
   ] } },
 };
 
-async function loadFamelackWeather() {
-  if (famelackCache.byId && Date.now() - famelackCache.time < FAMELACK_TTL) {
-    return famelackCache.byId;
-  }
-  const res = await fetch(FAMELACK_WEATHER_URL, { timeout: 15000 });
-  if (!res.ok) throw new Error(`famelack data HTTP ${res.status}`);
+async function loadFamelackCategory(cat) {
+  const res = await fetch(FAMELACK_CATEGORY_URL(cat), { timeout: 15000 });
+  if (!res.ok) throw new Error(`famelack ${cat} HTTP ${res.status}`);
   const buf = await res.buffer();
-  // Gzipped despite the .json name (gzip magic 1f 8b); tolerate plain JSON.
+  // Plain JSON now; once gzipped despite the .json name (magic 1f 8b).
   const text = (buf[0] === 0x1f && buf[1] === 0x8b)
     ? zlib.gunzipSync(buf).toString('utf8')
     : buf.toString('utf8');
   const list = JSON.parse(text);
-  const byId = {};
-  for (const ch of Array.isArray(list) ? list : []) {
-    if (ch && ch.nanoid) byId[ch.nanoid] = ch;
+  return Array.isArray(list) ? list : [];
+}
+
+async function loadFamelackChannels() {
+  if (famelackCache.byId && Date.now() - famelackCache.time < FAMELACK_TTL) {
+    return famelackCache.byId;
   }
+  const results = await Promise.allSettled(FAMELACK_CATEGORIES.map(loadFamelackCategory));
+  const byId = {};
+  let loaded = 0;
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      console.error(`[LiveStream] famelack ${FAMELACK_CATEGORIES[i]} list failed:`, r.reason.message);
+      return;
+    }
+    loaded++;
+    for (const ch of r.value) if (ch && ch.nanoid) byId[ch.nanoid] = ch;
+  });
+  if (!loaded) throw new Error('no famelack channel lists');
   famelackCache = { time: Date.now(), byId };
   return byId;
 }
 
+// Live TV stream URLs for a famelack channel id (/wx, main page, /biznews).
 app.get('/api/wx-stream/:id', async (req, res) => {
   const id = req.params.id;
   if (!/^[A-Za-z0-9_-]{6,40}$/.test(id)) return res.status(400).json({ error: 'bad id' });
   let ch = null;
   try {
-    ch = (await loadFamelackWeather())[id] || null;
+    ch = (await loadFamelackChannels())[id] || null;
   } catch (e) {
     console.error('[WxStream] famelack lookup failed:', e.message);
     if (famelackCache.byId) ch = famelackCache.byId[id] || null;  // stale is fine
@@ -939,8 +1029,12 @@ app.get('/api/weather-by-coords', async (req, res) => {
       const p = periods[i];
       if (!p.isDaytime) continue;
       const nightP = periods[i + 1] && !periods[i + 1].isDaytime ? periods[i + 1] : null;
-      const dayName = p.name.replace(/ .*/, '');
-      const shortDay = dayName.length > 3 ? dayName.substring(0, 3) : dayName;
+      // Weekday from the period's date, not its name: NWS names holidays
+      // ("Veterans Day"), which would show as "Vet" (as in weather-scraper.js).
+      const isoDay = (p.startTime || '').slice(0, 10);
+      const shortDay = /^\d{4}-\d{2}-\d{2}$/.test(isoDay)
+        ? new Date(isoDay + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
+        : p.name.replace(/ .*/, '').substring(0, 3);
       const displayDay = (p.name === 'This Afternoon' || p.name === 'Today') ? 'Today' : shortDay;
       const windMatch = (p.windSpeed || '').match(/(\d+)/);
       const windMph = windMatch ? parseInt(windMatch[1]) : 0;
@@ -1082,7 +1176,7 @@ app.get('/api/pivotal-gif', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   console.log(`MarckNetVision Dashboard running at http://localhost:${PORT}`);
 
   // Keep the BizNews market data fresh: always refresh on server start

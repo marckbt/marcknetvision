@@ -1,5 +1,45 @@
 // ===== MarckNetVision Dashboard App =====
 
+// --- Login ---
+// A background request answered 401 means the session ended: go to login.
+(function () {
+  const baseFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const res = await baseFetch.apply(this, args);
+    if (res.status === 401 && new URL(res.url).origin === location.origin) {
+      location.assign('/login?next=' + encodeURIComponent(location.pathname + location.search));
+    }
+    return res;
+  };
+})();
+
+// Account actions in the top menu (Admin appears for the admin only).
+async function initAccountMenu() {
+  const menu = document.getElementById('topControls');
+  if (!menu) return;
+  const res = await fetch('/api/auth/me');
+  if (!res.ok) return;
+  const me = await res.json();
+  const addButton = (icon, label, title, onClick) => {
+    const btn = document.createElement('button');
+    const iconEl = document.createElement('span');
+    iconEl.className = 'menu-icon menu-icon--' + icon;
+    btn.append(iconEl, label);
+    btn.title = title;
+    btn.addEventListener('click', onClick);
+    menu.appendChild(btn);
+  };
+  if (me.isAdmin) addButton('admin', 'User Admin', 'Manage users', () => location.assign('/admin'));
+  addButton('key', 'Change Password', 'Change your password', () => location.assign('/change-password'));
+  addButton('logout', 'Log Out', 'Log out ' + me.email, async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.assign('/login');
+  });
+}
+initAccountMenu();
+
+document.getElementById('menuHome')?.addEventListener('click', () => location.assign('/'));
+
 // --- Weather Channel Temperature Color Scale ---
 function getTempColor(temp) {
   // Color stops based on the Weather Channel temperature scale
@@ -43,7 +83,6 @@ const html = document.documentElement;
 function setTheme(theme) {
   html.setAttribute('data-theme', theme);
   localStorage.setItem('mnv-theme', theme);
-  themeToggle.querySelector('.theme-icon').textContent = theme === 'dark' ? '\u263E' : '\u2600';
   // Label shows the action the click will perform (switch to the other mode).
   const label = themeToggle.querySelector('.theme-label');
   if (label) label.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
@@ -325,10 +364,46 @@ async function initNews() {
 // --- Weather ---
 let weatherData = null;
 
-const LOCATION_COORDS = {
-  chantilly: { lat: 38.8942, lon: -77.4311 },
-  cincinnati: { lat: 39.1031, lon: -84.5120 },
-};
+// Coordinates of the configured weather locations (config/locations.json),
+// keyed by location key. Filled by loadLocationTabs().
+const LOCATION_COORDS = {};
+
+// Key of the first location tab — the default selection.
+function defaultLocationKey() {
+  const first = document.querySelector('#weatherLocationTabs .tab-btn');
+  return first ? first.dataset.location : 'browserLocation';
+}
+
+// Add a tab per configured location ahead of the built-in Browser
+// Location / World tabs, and select the first. Runs once per page load.
+// BizNews shows only the browser location, so it has no location tabs.
+let locationTabsLoaded = false;
+async function loadLocationTabs() {
+  if (locationTabsLoaded || window.MNV_PAGE === 'biznews') return;
+  locationTabsLoaded = true;
+  const tabs = document.getElementById('weatherLocationTabs');
+  if (!tabs) return;
+  let locations = [];
+  try {
+    const res = await fetch('/api/locations');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    locations = await res.json();
+  } catch (e) {
+    console.warn('[Weather] Location list unavailable:', e.message);
+  }
+  const before = tabs.querySelector('[data-location="browserLocation"]');
+  locations.forEach(l => {
+    LOCATION_COORDS[l.key] = { lat: l.lat, lon: l.lon };
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.dataset.location = l.key;
+    btn.textContent = l.name;
+    tabs.insertBefore(btn, before);
+  });
+  if (!tabs.querySelector('.tab-btn.active')) {
+    tabs.querySelector('.tab-btn')?.classList.add('active');
+  }
+}
 
 // Weather radar — Windy's radar layer, centered on the requested location.
 // (windy.com itself can't be framed: it sends
@@ -370,12 +445,13 @@ function switchWindyOverlay(overlay, btn) {
 async function loadWeather() {
   const scrollArea = document.getElementById('weatherScrollArea');
   scrollArea.innerHTML = '<div class="loading-spinner">Loading weather...</div>';
+  await loadLocationTabs();
   try {
     const res = await fetch('/api/weather');
     weatherData = await res.json();
     // Render whichever location tab is active
     const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
-    const activeLoc = activeTab ? activeTab.dataset.location : 'chantilly';
+    const activeLoc = activeTab ? activeTab.dataset.location : defaultLocationKey();
     if (activeLoc === 'pivotal') {
       renderPivotalSidebar();
     } else {
@@ -458,6 +534,7 @@ const WX_DAY_FROM_NIGHT = {
 const WX_NIGHT_FROM_DAY = {
   'Sunny.gif':         'Clear.gif',
   'Partly-Cloudy.gif': 'Partly-Clear.gif',
+  'Mostly-Cloudy.gif': 'Partly-Clear.gif',  // moon behind clouds
 };
 
 // Expand Weather.com's abbreviated short-phrase conditions (used by the
@@ -547,6 +624,9 @@ function getWxIcon(condition, timeOfDay = 'day') {
 }
 
 function renderWeatherSidebar(locationKey) {
+  // /wx: the Breaking Alert System list (wx.js).
+  if (locationKey === 'alerts' && window.wxRenderAlertsSidebar) return window.wxRenderAlertsSidebar();
+  if (bizOwnsMiddleColumn()) return;
   const scrollArea = document.getElementById('weatherScrollArea');
   if (!weatherData || !weatherData[locationKey]) {
     scrollArea.innerHTML = '<div class="loading-spinner">No data for this location</div>';
@@ -612,17 +692,58 @@ async function selectWorldWeather() {
 
 // One small forecast card's inner markup, shared by the sidebar and the
 // main panel. `compact` trims it for the narrow sidebar.
+// ── Local time in world cities ──────────────────────────────────────
+// Each world city carries its IANA time zone (and UTC offset as a
+// fallback). worldLocalTimeHtml() renders a span that shows the city's
+// current local time; a once-a-minute timer keeps every such span on the
+// page up to date, popups included.
+function worldLocalTime(tz, offset) {
+  const now = new Date();
+  const opts = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
+  if (tz) {
+    try { return now.toLocaleString([], { ...opts, timeZone: tz }); } catch (_) { /* unknown zone */ }
+  }
+  if (Number.isFinite(offset)) {
+    // Shift by the offset and format as UTC.
+    return new Date(now.getTime() + offset * 1000).toLocaleString([], { ...opts, timeZone: 'UTC' });
+  }
+  return '';
+}
+
+function worldLocalTimeHtml(c, label) {
+  if (!c || (!c.timezone && !Number.isFinite(c.utcOffset))) return '';
+  const time = worldLocalTime(c.timezone, c.utcOffset);
+  if (!time) return '';
+  return `<span class="world-local-time" data-tz="${escapeHtml(c.timezone || '')}"` +
+    ` data-offset="${Number.isFinite(c.utcOffset) ? c.utcOffset : ''}"` +
+    ` title="Local time in ${escapeHtml(c.city)}">${label ? escapeHtml(label) + ' ' : ''}` +
+    `<span class="world-local-time-value">${escapeHtml(time)}</span></span>`;
+}
+
+function refreshWorldLocalTimes() {
+  document.querySelectorAll('.world-local-time').forEach(el => {
+    const offset = el.dataset.offset === '' ? NaN : Number(el.dataset.offset);
+    const v = el.querySelector('.world-local-time-value');
+    if (v) v.textContent = worldLocalTime(el.dataset.tz || null, offset);
+  });
+}
+// Tick on the minute, then every minute.
+setTimeout(() => { refreshWorldLocalTimes(); setInterval(refreshWorldLocalTimes, 60 * 1000); },
+  60 * 1000 - (Date.now() % (60 * 1000)) + 50);
+
 function worldCityCard(c, compact) {
   const hi = c.high != null ? `${c.high}&deg;` : '--';
   const lo = c.low != null ? `${c.low}&deg;` : '--';
   const hiColor = c.high != null ? getTempColor(c.high) : 'var(--text-muted)';
   const loColor = c.low != null ? getTempColor(c.low) : 'var(--text-muted)';
+  const localTime = worldLocalTimeHtml(c);
   return `
     <div class="weather-day-card world-city-card${compact ? ' compact' : ''}">
       <div class="wx-icon">${getWxIcon(c.condition)}</div>
       <div class="wx-info">
         <div class="wx-day">${escapeHtml(c.city)}<span class="world-country"> · ${escapeHtml(c.country)}</span></div>
         <div class="wx-desc">${escapeHtml(c.condition)}</div>
+        ${localTime ? `<div class="world-city-time">${localTime}</div>` : ''}
       </div>
       <div class="wx-temps">
         <div class="wx-high" style="color:${hiColor}">${hi}</div>
@@ -910,12 +1031,6 @@ function renderLogoAlertItem(badge) {
   }
 }
 
-function showWeatherscanVideo() {
-  document.getElementById('weatherscanFrame').src = 'https://v1.weatherscan.net/';
-  document.querySelector('#weatherscanContent h2').textContent = 'Weatherscan Live';
-  showPanel('weatherscanPanel');
-}
-
 function showDWLive() {
   const main = document.getElementById('mainContent');
   const rect = main.getBoundingClientRect();
@@ -938,10 +1053,11 @@ function showDWLive() {
 // geolocation, then a US default.
 async function resolveRadarTarget() {
   const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
-  const loc = activeTab ? activeTab.dataset.location : 'chantilly';
+  const loc = activeTab ? activeTab.dataset.location : defaultLocationKey();
   const label = activeTab ? activeTab.textContent.trim() : '';
   if (LOCATION_COORDS[loc]) return { ...LOCATION_COORDS[loc], label };
   if (loc === 'world') return { lat: 30, lon: -40, zoom: 3, label: 'World' };
+  if (loc === 'alerts') return { lat: 38.5, lon: -96, zoom: 4, label: 'United States' };
   if (currentLocation && currentLocation.lat != null && currentLocation.lon != null) {
     return { lat: currentLocation.lat, lon: currentLocation.lon, label: label || currentLocation.city || '' };
   }
@@ -968,6 +1084,27 @@ async function showWeatherRadar() {
     t.label ? `Weather Radar — ${t.label}` : 'Weather Radar';
   showPanel('weatherscanPanel');
 }
+
+// Keep an open radar centered on the selected location: when a location tab
+// is clicked while the radar is showing, re-center it. The main-panel frame
+// can show other pages, so only act when it is actually the radar. This
+// listener is registered before the tab handler that marks the new tab
+// active, so read the active tab on the next tick.
+(function bindRadarFollowsLocation() {
+  const tabs = document.getElementById('weatherLocationTabs');
+  if (!tabs) return;
+  tabs.addEventListener('click', (e) => {
+    if (!e.target.classList.contains('tab-btn')) return;
+    setTimeout(() => {
+      const panel = document.getElementById('weatherscanPanel');
+      const frame = document.getElementById('weatherscanFrame');
+      if (panel && panel.classList.contains('active') &&
+          frame && /[?&]overlay=radar(&|$)/.test(frame.src)) {
+        showWeatherRadar();
+      }
+    }, 0);
+  });
+})();
 
 function showESPNLive() {
   const main = document.getElementById('mainContent');
@@ -1904,7 +2041,18 @@ async function fetchBrowserLocationWeather() {
   }
 }
 
+// On /biznews the middle column holds the markets (biznews.js), not the
+// forecast: weather renders there must leave it alone.
+function bizOwnsMiddleColumn() {
+  if (window.MNV_PAGE !== 'biznews') return false;
+  if (typeof window.bizRenderMarkets === 'function') {
+    window.bizRenderMarkets(document.getElementById('weatherScrollArea'));
+  }
+  return true;
+}
+
 function renderBrowserLocationWeather() {
+  if (bizOwnsMiddleColumn()) return;
   const scrollArea = document.getElementById('weatherScrollArea');
   if (!browserLocationWeather || !browserLocationWeather.daily || !browserLocationWeather.daily.length) {
     scrollArea.innerHTML = '<div class="loading-spinner">No weather data for this location</div>';
@@ -2532,7 +2680,7 @@ async function applyWeatherSwap() {
 
     // Restore weather in the sidebar and events in the ticker.
     const activeTab = document.querySelector('#weatherLocationTabs .tab-btn.active');
-    const activeLoc = activeTab ? activeTab.dataset.location : 'chantilly';
+    const activeLoc = activeTab ? activeTab.dataset.location : defaultLocationKey();
     renderWeatherSidebar(activeLoc);
     renderTicker(cachedScheduleData);
   }
@@ -2636,7 +2784,9 @@ function weatherAutoScrollStep(ts) {
   const dt = ts - weatherAutoScrollLastTs;
   weatherAutoScrollLastTs = ts;
 
-  if (!weatherAutoScrollPaused) {
+  // A view with its own scroller (the /wx alert list) runs it instead,
+  // and moves on to the next location itself.
+  if (!weatherAutoScrollPaused && !window.mnvSidebarScrollOwner) {
     weatherAutoScrollAcc += (AUTO_SCROLL_PX_PER_SEC * dt) / 1000;
     const area = document.getElementById('weatherScrollArea');
     if (area) {

@@ -2,27 +2,33 @@ const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 
-// Location configs
-const LOCATIONS = {
-  chantilly: {
-    name: 'Chantilly, VA',
-    nwsForecast: 'https://api.weather.gov/gridpoints/LWX/83,69/forecast',
-    nwsHourly: 'https://api.weather.gov/gridpoints/LWX/83,69/forecast/hourly',
-    wuSlug: 'us/va/chantilly',
-    lat: 38.8942,
-    lon: -77.4311,
-  },
-  cincinnati: {
-    name: 'Cincinnati, OH',
-    nwsForecast: 'https://api.weather.gov/gridpoints/ILN/36,38/forecast',
-    nwsHourly: 'https://api.weather.gov/gridpoints/ILN/36,38/forecast/hourly',
-    wuSlug: 'us/oh/cincinnati',
-    lat: 39.1031,
-    lon: -84.5120,
-  },
-};
+const { loadLocations } = require('./locations-config');
+const { wmoCondition } = require('./open-meteo');
 
 const UA = 'MarckNetVision/1.0 (weather dashboard; contact@marcknetvision.local)';
+
+// NWS forecasts are per grid cell; look up each location's forecast URL
+// from its lat/lon once and keep it for the life of the process.
+const nwsForecastUrls = new Map();   // "lat,lon" → forecast URL
+
+async function resolveNWSForecastUrl(lat, lon) {
+  const key = `${lat},${lon}`;
+  if (nwsForecastUrls.has(key)) return nwsForecastUrls.get(key);
+  try {
+    const res = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, {
+      headers: { 'User-Agent': UA, Accept: 'application/geo+json' },
+      timeout: 10000,
+    });
+    if (!res.ok) throw new Error(`NWS points ${res.status}`);
+    const url = (await res.json()).properties?.forecast;
+    if (!url) throw new Error('no forecast URL (outside NWS coverage?)');
+    nwsForecastUrls.set(key, url);
+    return url;
+  } catch (e) {
+    console.error(`NWS grid lookup failed for ${key}: ${e.message}`);
+    return null;
+  }
+}
 
 // Fetch active NWS weather alerts (watches, warnings, advisories) for a
 // point. Returns a normalized array sorted by severity (Extreme first).
@@ -96,6 +102,7 @@ async function fetchNWSAlerts(lat, lon) {
 
 // Fetch NWS forecast
 async function fetchNWSForecast(url) {
+  if (!url) return [];
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': UA, Accept: 'application/geo+json' },
@@ -110,34 +117,31 @@ async function fetchNWSForecast(url) {
   }
 }
 
-// Fetch Weather Underground API (internal JSON endpoint)
-async function fetchWUForecast(slug) {
+// Fetch the Open-Meteo daily forecast (free, no API key; non-commercial
+// use). Dates are in the location's own time zone.
+async function fetchOpenMeteoForecast(loc) {
   try {
-    const url = `https://api.weather.com/v3/wx/forecast/daily/7day?geocode=${LOCATIONS[slug]?.lat || 38.89},${LOCATIONS[slug]?.lon || -77.43}&format=json&units=e&language=en-US&apiKey=e1f10a1e78da46f5b10a1e78da96f525`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+    const params = new URLSearchParams({
+      latitude: loc.lat,
+      longitude: loc.lon,
+      daily: [
+        'weather_code', 'temperature_2m_max', 'temperature_2m_min',
+        'precipitation_probability_max', 'wind_speed_10m_max',
+        'wind_direction_10m_dominant', 'cloud_cover_mean', 'dew_point_2m_mean',
+      ].join(','),
+      temperature_unit: 'fahrenheit',
+      wind_speed_unit: 'mph',
+      timezone: 'auto',
+      forecast_days: 8,
+    });
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, {
+      headers: { 'User-Agent': UA },
       timeout: 10000,
     });
-    if (!res.ok) throw new Error(`WU API ${res.status}`);
+    if (!res.ok) throw new Error(`Open-Meteo ${res.status}`);
     return await res.json();
   } catch (e) {
-    console.error(`WU fetch failed for ${slug}: ${e.message}`);
-    return null;
-  }
-}
-
-// Scrape Weather Underground HTML via internal Sun API (backup)
-async function fetchWUSunAPI(locKey) {
-  const loc = LOCATIONS[locKey];
-  try {
-    const url = `https://api.weather.com/v3/wx/forecast/daily/7day?geocode=${loc.lat},${loc.lon}&format=json&units=e&language=en-US&apiKey=e1f10a1e78da46f5b10a1e78da96f525`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000,
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (e) {
+    console.error(`Open-Meteo fetch failed for ${loc.name}: ${e.message}`);
     return null;
   }
 }
@@ -152,17 +156,24 @@ function parseNWSDays(periods) {
     // Find matching night period
     const nightP = periods[i + 1] && !periods[i + 1].isDaytime ? periods[i + 1] : null;
 
-    const dayName = p.name.replace(/ .*/, ''); // "Saturday" -> "Sat" handled below
-    const shortDay = dayName.length > 3 ? dayName.substring(0, 3) : dayName;
+    // Weekday from the period's local date, not its name: NWS names
+    // holidays ("Veterans Day", "Thanksgiving Day"), which would show as
+    // "Vet" or "Tha".
+    const isoDay = (p.startTime || '').slice(0, 10);
+    const shortDay = /^\d{4}-\d{2}-\d{2}$/.test(isoDay)
+      ? new Date(isoDay + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
+      : p.name.replace(/ .*/, '').substring(0, 3);
     // Handle "This Afternoon" / "Today"
     const displayDay = (p.name === 'This Afternoon' || p.name === 'Today') ? 'Today' : shortDay;
 
-    const windMatch = (p.windSpeed || '').match(/(\d+)/);
-    const windMph = windMatch ? parseInt(windMatch[1]) : 0;
+    // NWS gives a range such as "5 to 10 mph"; use the top of it.
+    const windNums = (p.windSpeed || '').match(/\d+/g) || [];
+    const windMph = windNums.length ? Math.max(...windNums.map(Number)) : 0;
 
     days.push({
       dayName: displayDay,
       date: new Date(p.startTime).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+      isoDate: (p.startTime || '').slice(0, 10),   // local date, e.g. "2026-10-28"
       high: p.temperature,
       low: nightP ? nightP.temperature : p.temperature - 15,
       dewPoint: null, // NWS doesn't include in forecast
@@ -178,68 +189,68 @@ function parseNWSDays(periods) {
   return days.slice(0, 7);
 }
 
-// Parse Weather.com (WU backend) data
-function parseWUData(wuData) {
-  if (!wuData || !wuData.dayOfWeek) return [];
-  const days = [];
-  const numDays = Math.min(7, wuData.dayOfWeek.length);
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
-  for (let i = 0; i < numDays; i++) {
-    const dayPart = wuData.daypart?.[0];
-    const dayIdx = i * 2; // daypart alternates day/night
-
-    days.push({
-      dayName: (wuData.dayOfWeek[i] || '').substring(0, 3),
-      date: wuData.validTimeLocal?.[i]
-        ? new Date(wuData.validTimeLocal[i]).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
-        : '',
-      high: wuData.temperatureMax?.[i] ?? null,
-      low: wuData.temperatureMin?.[i] ?? null,
-      dewPoint: dayPart?.relativeHumidity?.[dayIdx] != null
-        ? Math.round((wuData.temperatureMax?.[i] || 60) - ((100 - (dayPart.relativeHumidity[dayIdx] || 50)) * 0.36))
-        : null,
-      wind: dayPart?.windSpeed?.[dayIdx] != null
-        ? `${dayPart.windSpeed[dayIdx]} mph ${dayPart.windDirectionCardinal?.[dayIdx] || ''}`
-        : null,
-      windMph: dayPart?.windSpeed?.[dayIdx] || 0,
-      cloudCover: dayPart?.cloudCover?.[dayIdx] ?? null,
-      precipChance: dayPart?.precipChance?.[dayIdx] ?? wuData.qpf?.[i] != null ? Math.min(100, Math.round((wuData.qpf[i] || 0) * 100)) : 0,
-      condition: dayPart?.wxPhraseLong?.[dayIdx] || wuData.narrative?.[i] || 'Unknown',
-      forecastText: wuData.narrative?.[i] || dayPart?.narrative?.[dayIdx] || '',
-      source: 'WU',
-    });
-  }
-  return days;
+// Parse the Open-Meteo daily forecast into the same day shape as NWS.
+function parseOpenMeteoDays(data) {
+  const d = data && data.daily;
+  if (!d || !Array.isArray(d.time)) return [];
+  const round = (v) => (v == null ? null : Math.round(v));
+  return d.time.slice(0, 8).map((isoDate, i) => {
+    // isoDate is a plain local date; format it as UTC so it doesn't shift.
+    const when = new Date(isoDate + 'T00:00:00Z');
+    const windMph = round(d.wind_speed_10m_max?.[i]) ?? 0;
+    const deg = d.wind_direction_10m_dominant?.[i];
+    const dir = deg != null ? COMPASS[Math.round(deg / 45) % 8] : '';
+    const condition = wmoCondition(d.weather_code?.[i]);
+    return {
+      dayName: when.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+      date: when.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' }),
+      isoDate,
+      high: round(d.temperature_2m_max?.[i]),
+      low: round(d.temperature_2m_min?.[i]),
+      dewPoint: round(d.dew_point_2m_mean?.[i]),
+      wind: `${windMph} mph ${dir}`.trim(),
+      windMph,
+      cloudCover: round(d.cloud_cover_mean?.[i]),
+      precipChance: round(d.precipitation_probability_max?.[i]) ?? 0,
+      condition,
+      forecastText: condition,
+      source: 'Open-Meteo',
+    };
+  });
 }
 
-// Merge NWS and WU data, averaging where both have values
-function mergeForecastData(nwsDays, wuDays) {
+// Merge NWS and Open-Meteo data, averaging where both have values. NWS
+// leads (its days and wording); Open-Meteo days are matched by date, since
+// NWS skips today once only "Tonight" is left.
+function mergeForecastData(nwsDays, omDays) {
   const merged = [];
-  const maxDays = Math.max(nwsDays.length, wuDays.length);
+  const omByDate = new Map(omDays.map(d => [d.isoDate, d]));
 
-  for (let i = 0; i < Math.min(maxDays, 7); i++) {
-    const nws = nwsDays[i] || {};
-    const wu = wuDays[i] || {};
+  for (let i = 0; i < Math.min(nwsDays.length, 7); i++) {
+    const nws = nwsDays[i];
+    const om = omByDate.get(nws.isoDate) || {};
 
     const avg = (a, b) => {
       if (a != null && b != null) return Math.round((a + b) / 2);
       return a ?? b ?? 0;
     };
 
-    const high = avg(nws.high, wu.high);
-    const low = avg(nws.low, wu.low);
+    const high = avg(nws.high, om.high);
+    const low = avg(nws.low, om.low);
 
-    // Estimate dew point from humidity or use WU value
-    let dewPoint = wu.dewPoint;
+    // Open-Meteo's dew point, or an estimate without it
+    let dewPoint = om.dewPoint;
     if (dewPoint == null) {
       // Rough estimate: dew point is typically 10-20 degrees below temp
       dewPoint = Math.round(low - 5 + (nws.precipChance || 0) * 0.15);
     }
 
     // Estimate cloud cover from condition text if not available
-    let cloudCover = wu.cloudCover;
+    let cloudCover = om.cloudCover;
     if (cloudCover == null) {
-      const cond = (nws.condition || wu.condition || '').toLowerCase();
+      const cond = (nws.condition || om.condition || '').toLowerCase();
       if (cond.includes('sunny') || cond.includes('clear')) cloudCover = 10;
       else if (cond.includes('mostly sunny') || cond.includes('mostly clear')) cloudCover = 25;
       else if (cond.includes('partly')) cloudCover = 45;
@@ -250,16 +261,16 @@ function mergeForecastData(nwsDays, wuDays) {
     }
 
     merged.push({
-      dayName: nws.dayName || wu.dayName || `Day ${i + 1}`,
-      date: nws.date || wu.date || '',
+      dayName: nws.dayName || om.dayName || `Day ${i + 1}`,
+      date: nws.date || om.date || '',
       high,
       low,
       dewPoint,
-      wind: nws.wind || wu.wind || '5 mph',
+      wind: nws.wind || om.wind || '5 mph',
       cloudCover,
-      precipChance: avg(nws.precipChance, wu.precipChance != null ? wu.precipChance : null),
-      condition: nws.condition || wu.condition || 'Unknown',
-      forecastText: nws.forecastText || wu.forecastText || '',
+      precipChance: avg(nws.precipChance, om.precipChance != null ? om.precipChance : null),
+      condition: nws.condition || om.condition || 'Unknown',
+      forecastText: nws.forecastText || om.forecastText || '',
     });
   }
 
@@ -272,29 +283,30 @@ async function refreshWeather() {
   const result = {};
   const sources = [];
 
-  for (const [key, loc] of Object.entries(LOCATIONS)) {
+  for (const loc of loadLocations()) {
+    const key = loc.key;
     console.log(`[Weather] Fetching ${loc.name}...`);
 
     // Fetch from forecast sources + alerts in parallel.
-    const [nwsPeriods, wuData, alerts] = await Promise.all([
-      fetchNWSForecast(loc.nwsForecast),
-      fetchWUForecast(key),
+    const [nwsPeriods, omData, alerts] = await Promise.all([
+      resolveNWSForecastUrl(loc.lat, loc.lon).then(fetchNWSForecast),
+      fetchOpenMeteoForecast(loc),
       fetchNWSAlerts(loc.lat, loc.lon),
     ]);
     console.log(`[Weather] ${loc.name}: ${alerts.length} active alert(s)`);
 
     const nwsDays = parseNWSDays(nwsPeriods);
-    const wuDays = parseWUData(wuData);
+    const omDays = parseOpenMeteoDays(omData);
 
     const usedSources = [];
     if (nwsDays.length > 0) usedSources.push('NWS');
-    if (wuDays.length > 0) usedSources.push('Weather Underground');
+    if (omDays.length > 0) usedSources.push('Open-Meteo');
 
-    console.log(`[Weather] ${loc.name}: NWS=${nwsDays.length} days, WU=${wuDays.length} days`);
+    console.log(`[Weather] ${loc.name}: NWS=${nwsDays.length} days, Open-Meteo=${omDays.length} days`);
 
     let daily;
-    if (nwsDays.length > 0 && wuDays.length > 0) {
-      daily = mergeForecastData(nwsDays, wuDays);
+    if (nwsDays.length > 0 && omDays.length > 0) {
+      daily = mergeForecastData(nwsDays, omDays);
       usedSources.push('(averaged)');
     } else if (nwsDays.length > 0) {
       // Supplement NWS-only data with estimated fields
@@ -303,8 +315,8 @@ async function refreshWeather() {
         dewPoint: d.dewPoint || Math.round(d.low - 5 + (d.precipChance || 0) * 0.15),
         cloudCover: d.cloudCover || estimateCloudCover(d.condition),
       }));
-    } else if (wuDays.length > 0) {
-      daily = wuDays;
+    } else if (omDays.length > 0) {
+      daily = omDays.slice(0, 7);
     } else {
       console.error(`[Weather] No data for ${loc.name}! Using fallback.`);
       // Return existing data if available

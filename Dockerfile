@@ -15,7 +15,10 @@
 #   docker run -d --name marcknetvision \
 #       --restart unless-stopped \
 #       -p 3000:3000 \
+#       -v marcknetvision-data:/var/lib/marcknetvision \
 #       marcknetvision:latest
+#   Passwords and session cookies cross the network unencrypted in this
+#   mode (the login page warns about it). Use it on a trusted network only.
 #
 # Run — with Nginx + Let's Encrypt TLS in front of node:
 #   The container needs to be reachable from the public internet on port 80
@@ -28,7 +31,10 @@
 #       -e TLS_EMAIL=you@example.com \
 #       -p 80:80 -p 443:443 \
 #       -v marcknetvision-letsencrypt:/etc/letsencrypt \
+#       -v marcknetvision-data:/var/lib/marcknetvision \
 #       marcknetvision:latest
+#   Don't publish port 3000 here: with TLS_DOMAIN set, node listens on
+#   127.0.0.1 only, so all traffic goes through HTTPS.
 #
 # Optional — run with full systemd inside (matches install-rhel.sh exactly,
 # but requires cgroup access and writable /run + /tmp):
@@ -37,7 +43,33 @@
 #       --tmpfs /run --tmpfs /tmp \
 #       -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
 #       -p 80:80 -p 443:443 -p 3000:3000 \
+#       -v marcknetvision-data:/var/lib/marcknetvision \
 #       marcknetvision:latest /usr/sbin/init
+#
+# Logins: users and sessions live in the marcknetvision-data volume, not in
+# the image or git, so they survive rebuilds. Back that volume up: it is the
+# only copy. Always pass the same named volume; without -v, Docker creates a
+# new anonymous one and the container starts with only the admin account.
+#
+# A new (empty) volume always gets the built-in admin, admin@marcknet.net:
+#   - password from ADMIN_INITIAL_PASSWORD if set (pass it once with -e, or
+#     with --env-file, and drop it afterwards), otherwise
+#   - hash from config/admin-seed.json, which is copied into the image when
+#     building from a checkout that has it. It is gitignored, so a fresh git
+#     clone won't: create it with `node scripts/auth-tool.js seed` first or
+#     use ADMIN_INITIAL_PASSWORD. Keep such an image in a private registry.
+# With neither, the container runs but nobody can log in. The admin must
+# choose a new password at first login.
+#
+# Locked out? Set a password, then restart:
+#   docker exec -it -u marcknetvision marcknetvision \
+#       node scripts/auth-tool.js reset admin@marcknet.net
+#   docker restart marcknetvision
+#
+# Environment variables (logins):
+#   ADMIN_INITIAL_PASSWORD — see above. Ignored once the admin exists.
+#   SESSION_IDLE_HOURS — log out after this many hours with no activity.
+#                 Default 24. An open dashboard tab counts as activity.
 #
 # Environment variables (TLS):
 #   TLS_DOMAIN  — public hostname to issue a cert for. Unset = HTTP only.
@@ -72,6 +104,7 @@ ENV APP_NAME=${APP_NAME} \
     APP_PORT=${APP_PORT} \
     NODE_ENV=production \
     PORT=${APP_PORT} \
+    MNV_DATA_DIR=/var/lib/${APP_NAME} \
     BUILD_ID=${BUILD_ID}
 
 # ---------------------------------------------------------------------------
@@ -125,6 +158,11 @@ COPY --chown=${APP_USER}:${APP_USER} . ${APP_DIR}/
 # Make sure the data dir exists and is writable after the bulk COPY.
 RUN install -d -o "${APP_USER}" -g "${APP_USER}" -m 755 "${APP_DIR}/public/data"
 
+# Users and sessions (see "Logins" above). Created before VOLUME so a new
+# volume inherits this owner and mode.
+RUN install -d -o "${APP_USER}" -g "${APP_USER}" -m 700 "${MNV_DATA_DIR}"
+VOLUME ["${MNV_DATA_DIR}"]
+
 # ---------------------------------------------------------------------------
 # Step 5: systemd unit (same as install-rhel.sh, minus ProtectHome which
 #   doesn't make sense when the app's home IS the working directory)
@@ -144,6 +182,7 @@ Restart=on-failure
 RestartSec=10
 Environment=PORT=${APP_PORT}
 Environment=NODE_ENV=production
+Environment=MNV_DATA_DIR=${MNV_DATA_DIR}
 Environment=BUILD_ID=${BUILD_ID}
 
 StandardOutput=journal
@@ -328,6 +367,12 @@ echo "[entrypoint] starting crond..."
 /usr/sbin/crond -n &
 CROND_PID=$!
 
+# --- Login data volume -----------------------------------------------------
+# A host-path mount can arrive owned by root; node runs as the app user.
+MNV_DATA_DIR="${MNV_DATA_DIR:-/var/lib/marcknetvision}"
+install -d -m 700 "${MNV_DATA_DIR}"
+chown -R "${APP_USER}:${APP_USER}" "${MNV_DATA_DIR}"
+
 # --- Start node (background) -----------------------------------------------
 echo "[entrypoint] starting node server.js on port ${APP_PORT} as ${APP_USER}..."
 cd "${APP_DIR}"
@@ -463,9 +508,10 @@ EXPOSE 80 443 ${APP_PORT}
 # Ask Docker to verify the app is actually serving. We hit nginx on :80
 # (the proxied path) — that exercises both the reverse proxy and node in
 # one probe. If nginx redirected :80 → :443 (post-cert), -L follows it.
+# /healthz is the one app route that doesn't need a login.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsSL -o /dev/null "http://127.0.0.1/" \
-        || curl -fsS -o /dev/null "http://127.0.0.1:${APP_PORT}/" \
+    CMD curl -fsSL -o /dev/null "http://127.0.0.1/healthz" \
+        || curl -fsS -o /dev/null "http://127.0.0.1:${APP_PORT}/healthz" \
         || exit 1
 
 # Default = foreground-node entrypoint (keeps the container running on

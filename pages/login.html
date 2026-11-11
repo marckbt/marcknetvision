@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log In — MarckNetVision</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/auth/auth.css">
+</head>
+<body class="auth-page">
+  <main class="auth-card">
+    <h1 class="auth-logo">
+      <svg viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MarckNet Vision">
+        <defs>
+          <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#00b4d8"/>
+            <stop offset="100%" stop-color="#0077b6"/>
+          </linearGradient>
+          <linearGradient id="visionGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#00b4d8"/>
+            <stop offset="50%" stop-color="#48cae4"/>
+            <stop offset="100%" stop-color="#90e0ef"/>
+          </linearGradient>
+        </defs>
+        <path d="M8 40 Q12 10, 20 30 Q28 50, 36 20 Q40 10, 44 30" stroke="url(#logoGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="26" cy="28" r="4" fill="url(#logoGrad)" opacity="0.8"/>
+        <circle cx="26" cy="28" r="16" stroke="url(#logoGrad)" stroke-width="1.5" fill="none" opacity="0.4"/>
+        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#logoGrad)">MARCK</text>
+        <text x="52" y="24" font-family="'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="url(#logoGrad)" dx="58">NET</text>
+        <text x="52" y="42" font-family="'Segoe UI', Arial, sans-serif" font-size="14" font-weight="300" letter-spacing="4" fill="url(#visionGrad)">VISION</text>
+        <circle cx="170" cy="18" r="2" fill="#00b4d8" opacity="0.6"/>
+        <circle cx="178" cy="22" r="1.5" fill="#48cae4" opacity="0.4"/>
+        <circle cx="174" cy="30" r="1" fill="#90e0ef" opacity="0.3"/>
+      </svg>
+    </h1>
+    <p class="auth-sub auth-sub--center">Log in to continue.</p>
+    <p class="auth-warning" id="insecureWarning" hidden>This connection isn't encrypted. Your password could be read on the network.</p>
+    <form id="loginForm">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p class="auth-error" id="formError" role="alert" hidden></p>
+      <button type="submit">Log In</button>
+    </form>
+  </main>
+  <script src="/auth/common.js"></script>
+  <script src="/auth/login.js"></script>
+</body>
+</html>

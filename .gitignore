@@ -8,3 +8,7 @@ node_modules/
 public/data/
 Archive/
 1992 CC 2/
+# Secrets: never commit these
+.env
+.env.*
+config/admin-seed.json

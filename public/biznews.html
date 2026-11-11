@@ -19,14 +19,17 @@
 
   <!-- Top Controls -->
   <div id="topControls">
+    <button id="menuHome" title="Go to the home page">
+      <span class="menu-icon menu-icon--home"></span> Home
+    </button>
     <button id="refreshAll" title="Refresh all feeds">
-      <span class="refresh-icon">&#8635;</span> Full Refresh
+      <span class="menu-icon menu-icon--refresh refresh-icon"></span> Full Refresh
     </button>
     <button id="fullAutoRefreshToggle" title="Toggle full auto-refresh (1 hour)">
-      Auto-Full Refresh <span class="full-auto-status">OFF</span>
+      <span class="menu-icon menu-icon--auto"></span> Auto-Full Refresh <span class="full-auto-status">OFF</span>
     </button>
     <button id="themeToggle" title="Toggle theme">
-      <span class="theme-icon">&#9790;</span> <span class="theme-label">Dark Mode</span>
+      <span class="menu-icon menu-icon--theme"></span> <span class="theme-label">Dark Mode</span>
     </button>
   </div>
 
@@ -80,10 +83,8 @@
             </div>
           </div>
           <div class="category-tabs" id="weatherLocationTabs">
-            <button class="tab-btn active" data-location="chantilly">Chantilly, VA</button>
-            <button class="tab-btn" data-location="cincinnati">Cincinnati, OH</button>
-            <button class="tab-btn" data-location="browserLocation">Browser Location</button>
-            <button class="tab-btn" data-location="world">World</button>
+            <!-- BizNews shows only the browser location's weather (bottom right). -->
+            <button class="tab-btn active" data-location="browserLocation">Browser Location</button>
             <!-- Pivotal WX tab hidden for now, code preserved -->
             <!-- <button class="tab-btn" data-location="pivotal">Pivotal WX</button> -->
           </div>
@@ -103,19 +104,22 @@
           <h3><svg class="sidebar-logo" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="4" width="13" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><polygon points="16,7 19,5 19,15 16,13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg> LIVE VIDEO</h3>
         </div>
         <div class="sidebar-scroll" id="liveVideoArea">
-          <!-- CNBC live business TV — plays in the main panel (autoplays on
-               page load). Replaces the TWC Retro / DW News cards. -->
+          <!-- Live business TV — each plays in the main panel, like the /wx
+               weather feeds (live-stream.js; Bloomberg starts on page load). -->
           <div class="live-video-row">
-            <div class="pivotal-card live-video-full" onclick="showCNBCLive()" title="Watch CNBC live in the main panel">
-              <div class="cnbc-logo-row">
-                <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="cnbc-logo">
-                  <rect x="0" y="0" width="120" height="28" rx="4" fill="#005594"/>
-                  <text x="60" y="20" text-anchor="middle" font-family="'Arial', 'Helvetica', sans-serif" font-size="16" font-weight="900" fill="#fff" letter-spacing="2">CNBC</text>
-                </svg>
-              </div>
-              <div class="wx-desc" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">
-                Live business TV
-              </div>
+            <div class="pivotal-card live-video-half wx-feed-card" onclick="wxShowStream('bloomberg')" title="Watch Bloomberg TV in the main panel">
+              <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="twc-logo">
+                <rect x="0" y="0" width="120" height="28" rx="4" fill="#000"/>
+                <text x="60" y="19" text-anchor="middle" font-family="'Arial','Helvetica',sans-serif" font-size="13" font-weight="700" fill="#fff" letter-spacing="0.3">Bloomberg</text>
+              </svg>
+              <div class="wx-desc" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">Live business TV</div>
+            </div>
+            <div class="pivotal-card live-video-half wx-feed-card" onclick="wxShowStream('foxBusiness')" title="Watch Fox Business in the main panel">
+              <svg viewBox="0 0 120 28" xmlns="http://www.w3.org/2000/svg" class="twc-logo">
+                <rect x="0" y="0" width="120" height="28" rx="4" fill="#0b2a5b"/>
+                <text x="60" y="18.5" text-anchor="middle" font-family="'Arial','Helvetica',sans-serif" font-size="11" font-weight="800" fill="#fff" letter-spacing="0.5">FOX BUSINESS</text>
+              </svg>
+              <div class="wx-desc" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">Live business TV</div>
             </div>
           </div>
           <div class="live-video-row" style="margin-top:6px;">
@@ -198,6 +202,26 @@
           <div id="marketPanelContent"></div>
         </div>
 
+        <!-- Live business TV: just the video, filling the main panel
+             (live-stream.js). Leaving the panel stops playback unless the
+             video has been popped out. -->
+        <div id="wxStreamPanel" class="content-panel wx-stream-panel">
+          <video id="wxStreamVideo" class="wx-stream-video"
+                 autoplay muted playsinline controls></video>
+          <div id="wxStreamStatus" class="wx-stream-status" hidden></div>
+          <!-- Top right of the video, left of the page's menu button. -->
+          <div class="wx-stream-controls">
+            <button class="wx-stream-close" onclick="wxCloseStream()"
+                    title="Close video" aria-label="Close video">&times;</button>
+            <button class="wx-stream-popout" onclick="wxPopOutStream()"
+                    title="Pop out the video and keep using the main panel"
+                    aria-label="Pop out video">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="1.5"/><rect x="10" y="10" width="6" height="4.5" rx="0.8" class="fill"/></svg>
+              Pop out
+            </button>
+          </div>
+        </div>
+
         <div id="newsDetailPanel" class="content-panel">
           <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
           <article id="newsArticleContent"></article>
@@ -221,7 +245,7 @@
         <div id="weatherscanPanel" class="content-panel">
           <button class="back-btn" onclick="showPanel('welcomeScreen')">&larr; Back</button>
           <div id="weatherscanContent">
-            <h2>Weatherscan Live</h2>
+            <h2>Weather Radar</h2>
             <iframe id="weatherscanFrame" src="" style="width:100%;height:calc(100vh - 160px);border:none;border-radius:8px;" allowfullscreen></iframe>
           </div>
         </div>
@@ -310,6 +334,7 @@
        market UI. -->
   <script>window.MNV_PAGE = 'biznews';</script>
   <script src="app.js"></script>
+  <script src="live-stream.js"></script>
   <script src="biznews.js"></script>
 </body>
 </html>

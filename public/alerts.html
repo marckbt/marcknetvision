@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Breaking Alerts</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<!-- Breaking Alert System on its own: opened by the "New window" button on
+     /wx. Same data and map as the /wx alerts view (alert-map.js). -->
+<body class="mnv-alerts-page">
+  <header class="ba-page-head">
+    <h1>Breaking Alert System</h1>
+    <span class="ba-page-meta" id="baMeta">Loading&hellip;</span>
+    <button type="button" class="wx-alerts-btn" id="baReset" title="Show the lower 48 states">Lower 48</button>
+  </header>
+  <main class="ba-page-body">
+    <div class="mnv-alert-map ba-page-map" id="baMap"></div>
+    <aside class="ba-page-list" id="baList" aria-label="Active warnings and watches"></aside>
+  </main>
+  <script src="/alert-map.js"></script>
+  <script src="/alerts-page.js"></script>
+</body>
+</html>

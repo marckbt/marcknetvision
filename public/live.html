@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Weather</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<!-- Pop-out live weather feed: opened by the "Pop out" button on /wx in
+     browsers without picture-in-picture. ?feed=<key> picks the feed. -->
+<body class="mnv-live-page">
+  <video id="wxStreamVideo" class="wx-stream-video" autoplay muted playsinline controls></video>
+  <div id="wxStreamStatus" class="wx-stream-status" hidden></div>
+  <script src="/live-stream.js"></script>
+</body>
+</html>

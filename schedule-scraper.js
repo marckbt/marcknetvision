@@ -9,7 +9,8 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 
 // ESPN Guide Feed API
 const ESPN_GUIDE_URL = 'https://site.web.api.espn.com/apis/personalized/site/v2/guide/feed';
-const ESPN_PARAMS = 'region=us&lang=en&configuration=STREAM_MENU&platform=web&buyWindow=1m&showAirings=buy%2Clive&ontology=true&limit=50&entitlements=ESPN_PLUS&postalCode=45237&swid=%7B8DEA0A28-3A4D-4EB5-B199-73095176C226%7D&hydrated=favorites&features=sfb-all%2Ccutl&tz=America%2FNew_York&playabilitySource=playbackId';
+const ESPN_PAGE_SIZE = 500;
+const ESPN_PARAMS = `region=us&lang=en&configuration=STREAM_MENU&platform=web&buyWindow=1m&showAirings=buy%2Clive&ontology=true&limit=${ESPN_PAGE_SIZE}&entitlements=ESPN_PLUS&postalCode=45237&swid=%7B8DEA0A28-3A4D-4EB5-B199-73095176C226%7D&hydrated=favorites&features=sfb-all%2Ccutl&tz=America%2FNew_York&playabilitySource=playbackId`;
 const ESPN_HEADERS = {
   'accept': '*/*',
   'origin': 'https://www.espn.com',
@@ -20,37 +21,115 @@ const ESPN_HEADERS = {
 // Allowed sports and their league mappings
 const ALLOWED_SPORTS = {
   'baseball': { leagueMap: { 'MLB': 'MLB', 'CBASE': 'College' } },
-  'football': { leagueMap: { 'NFL': 'NFL', 'CFB': 'CFB', 'UFL': 'UFL' } },
+  'football': { leagueMap: { 'NFL': 'NFL', 'NCAAF': 'CFB', 'CFB': 'CFB', 'UFL': 'UFL' } },
   'basketball': { leagueMap: { 'NBA': 'NBA', 'NCAAM': 'NCAAM' } },
   'tennis': { leagueMap: {} },  // accept all tennis
   'golf': { leagueMap: { 'PGA': 'PGA' } },
 };
 
-// Fetch all pages from ESPN Guide Feed
-async function fetchESPNGuideFeed() {
-  const allEvents = [];
-  const maxPages = 4;
+// ET calendar date as YYYYMMDD, for the feed's `dates` parameter.
+function etDateParam(date) {
+  const p = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'America/New_York',
+  }).formatToParts(date);
+  const part = (type) => p.find(x => x.type === type).value;
+  return part('year') + part('month') + part('day');
+}
+
+// Fetch every page of the Guide Feed for one ET day. The feed lists events
+// by start time, so stopping early loses the evening's games.
+async function fetchESPNGuideDay(dateParam) {
+  const events = [];
+  const maxPages = 6;
 
   for (let page = 1; page <= maxPages; page++) {
     try {
-      const url = `${ESPN_GUIDE_URL}?${ESPN_PARAMS}&page=${page}`;
+      const url = `${ESPN_GUIDE_URL}?${ESPN_PARAMS}&dates=${dateParam}&page=${page}`;
       const res = await fetch(url, { headers: ESPN_HEADERS, timeout: 15000 });
       if (!res.ok) {
-        console.error(`[Schedule] ESPN Guide page ${page}: HTTP ${res.status}`);
+        console.error(`[Schedule] ESPN Guide ${dateParam} page ${page}: HTTP ${res.status}`);
         break;
       }
       const data = await res.json();
-      const events = data.events || [];
-      allEvents.push(...events);
-      if (events.length < 50) break; // last page
+      const pageEvents = data.events || [];
+      events.push(...pageEvents);
+      if (pageEvents.length < ESPN_PAGE_SIZE) break; // last page
     } catch (e) {
-      console.error(`[Schedule] ESPN Guide page ${page} failed: ${e.message}`);
+      console.error(`[Schedule] ESPN Guide ${dateParam} page ${page} failed: ${e.message}`);
       break;
     }
   }
+  return events;
+}
 
-  console.log(`[Schedule] ESPN Guide Feed: ${allEvents.length} raw events across pages`);
-  return parseESPNGuideEvents(allEvents);
+// The Guide Feed stops at about 550 events a day, which on a busy Saturday
+// cuts off everything after about 8 PM ET. League scoreboards have no such
+// limit, so they fill in the late games. Each entry: ESPN path, the league
+// abbreviation and slug the Guide Feed uses, and extra query parameters
+// (college scoreboards default to Top 25 only; 80 = FBS, 50 = Division I).
+const ESPN_SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports';
+const ESPN_SCOREBOARDS = [
+  { path: 'basketball/nba', sport: 'basketball', sportName: 'Basketball', abbreviation: 'NBA', slug: 'nba' },
+  { path: 'football/college-football', sport: 'football', sportName: 'Football', abbreviation: 'NCAAF', slug: 'college-football', query: 'groups=80&limit=300' },
+  { path: 'basketball/mens-college-basketball', sport: 'basketball', sportName: 'Basketball', abbreviation: 'NCAAM', slug: 'mens-college-basketball', query: 'groups=50&limit=300' },
+];
+
+// Reshape a scoreboard event into the Guide Feed's event shape, so it goes
+// through the same parsing and filtering.
+function scoreboardEventToGuide(event, board, leagueLogos) {
+  const competition = event.competitions?.[0] || {};
+  return {
+    id: event.id,
+    date: event.date,
+    name: event.name,
+    shortName: event.shortName,
+    status: event.status,
+    sport: { slug: board.sport, displayName: board.sportName },
+    league: { abbreviation: board.abbreviation, slug: board.slug, logos: leagueLogos },
+    competitors: (competition.competitors || []).map(c => ({
+      homeAway: c.homeAway,
+      team: { ...c.team, logos: c.team?.logo ? [{ href: c.team.logo }] : [] },
+    })),
+    watch: {
+      broadcasts: (competition.geoBroadcasts || []).map(b => ({
+        type: { slug: b.type?.shortName === 'TV' ? 'television' : (b.type?.shortName || '').toLowerCase() },
+        market: b.market,
+        media: b.media,
+      })),
+    },
+  };
+}
+
+async function fetchESPNScoreboard(board, dateParam) {
+  try {
+    const query = [`dates=${dateParam}`, board.query].filter(Boolean).join('&');
+    const res = await fetch(`${ESPN_SCOREBOARD_URL}/${board.path}/scoreboard?${query}`, { headers: ESPN_HEADERS, timeout: 15000 });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const leagueLogos = data.leagues?.[0]?.logos;
+    return (data.events || []).map(e => scoreboardEventToGuide(e, board, leagueLogos));
+  } catch (e) {
+    console.error(`[Schedule] ESPN scoreboard ${board.abbreviation} failed: ${e.message}`);
+    return [];
+  }
+}
+
+// Fetch today and tomorrow (ET), since the display window runs 20h ahead.
+async function fetchESPNGuideFeed() {
+  const now = new Date();
+  const dates = [now, new Date(now.getTime() + 24 * 60 * 60 * 1000)].map(etDateParam);
+  const [guideDays, boards] = await Promise.all([
+    Promise.all(dates.map(fetchESPNGuideDay)),
+    Promise.all(ESPN_SCOREBOARDS.map(board => fetchESPNScoreboard(board, dates[0]))),
+  ]);
+
+  // Both sources use the same event ids. The Guide Feed wins: it has the
+  // fuller broadcast details.
+  const unique = new Map(boards.flat().map(e => [e.id, e]));
+  for (const event of guideDays.flat()) unique.set(event.id, event);
+
+  console.log(`[Schedule] ESPN: ${unique.size} raw events`);
+  return parseESPNGuideEvents([...unique.values()]);
 }
 
 // Pull the broadcast / streaming channel out of an ESPN Guide event.
@@ -151,6 +230,10 @@ function pickLogo(logos) {
 }
 
 // Parse ESPN Guide events into schedule items
+function hasTelevisionBroadcast(event) {
+  return (event?.watch?.broadcasts || []).some(b => (b?.type?.slug || '').toLowerCase() === 'television');
+}
+
 function parseESPNGuideEvents(events) {
   const items = [];
   const now = new Date();
@@ -258,6 +341,7 @@ function parseESPNGuideEvents(events) {
       homeLogo, awayLogo,
       leagueLogo,
       network,
+      streamingOnly: !hasTelevisionBroadcast(event),
       time,
       link: extractGameLink(event),
       sortTime: dateStr,
@@ -363,6 +447,27 @@ async function fetchTeamLiquidSC2() {
 }
 
 // Apply filtering rules
+// Pick up to `cap` games, taking turns between start hours so a busy noon
+// slate can't fill the list and leave the evening empty. Within an hour,
+// games on broadcast TV come before streaming-only ones.
+function spreadByStartHour(games, cap) {
+  const byHour = new Map();
+  const ordered = games.slice().sort((a, b) => (a.streamingOnly ? 1 : 0) - (b.streamingOnly ? 1 : 0));
+  for (const game of ordered) {
+    const hour = (game.sortTime || '').slice(0, 13);
+    if (!byHour.has(hour)) byHour.set(hour, []);
+    byHour.get(hour).push(game);
+  }
+  const hours = [...byHour.values()];
+  const picked = [];
+  while (picked.length < cap && hours.some(h => h.length)) {
+    for (const hour of hours) {
+      if (hour.length && picked.length < cap) picked.push(hour.shift());
+    }
+  }
+  return picked;
+}
+
 function filterAndSort(allItems) {
   // MLB Baseball (up to 40)
   const mlbBaseball = allItems.filter(i => i.sport === 'Baseball (MLB)').slice(0, 40);
@@ -390,23 +495,16 @@ function filterAndSort(allItems) {
   // MLB/College slate can't crowd these out of the combined cap above.
   const summerBaseball = allItems.filter(i => i.sport === 'Baseball (Summer)').slice(0, 20);
 
-  // Football (up to 40)
-  const football = allItems.filter(i => i.sport.startsWith('Football')).slice(0, 40);
+  // Football (up to 40): every NFL game, then college across the day.
+  const nfl = allItems.filter(i => i.sport === 'Football (NFL)');
+  const otherFootball = allItems.filter(i => i.sport.startsWith('Football') && i.sport !== 'Football (NFL)');
+  const football = [...nfl, ...spreadByStartHour(otherFootball, Math.max(40 - nfl.length, 0))];
 
-  // Basketball: varied start times, max 10
-  const basketballAll = allItems.filter(i => i.sport.startsWith('Basketball'));
-  const basketball = [];
-  const seenTimes = new Set();
-  basketballAll.sort((a, b) => (a.sortTime || '').localeCompare(b.sortTime || ''));
-  for (const game of basketballAll) {
-    const timeBucket = game.time?.replace(/:\d{2}\s/, ':00 ') || '';
-    if (basketball.length < 10) {
-      if (seenTimes.size < 3 || !seenTimes.has(timeBucket) || basketball.length < 6) {
-        basketball.push(game);
-        seenTimes.add(timeBucket);
-      }
-    }
-  }
+  // Basketball: every NBA game (a full slate is 15), then up to 10 college.
+  // Grouped separately so noon college tip-offs can't crowd out NBA nights.
+  const nba = allItems.filter(i => i.sport === 'Basketball (NBA)');
+  const collegeBasketball = spreadByStartHour(allItems.filter(i => i.sport === 'Basketball (NCAAM)'), 10);
+  const basketball = [...nba, ...collegeBasketball];
 
   // Tennis: don't show multiple matches that overlap in time. The feed
   // often lists many simultaneous matches/courts sharing a start time;
